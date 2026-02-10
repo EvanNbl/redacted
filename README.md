@@ -173,7 +173,8 @@ L’app intègre les mises à jour automatiques via **Tauri Updater** et les **G
 
 | Secret | Description |
 |--------|-------------|
-| `TAURI_SIGNING_PRIVATE_KEY` | Contenu (ou chemin) de la clé privée de signature. Générer avec : `npm run tauri signer generate -- -w $env:USERPROFILE\.tauri\monapp.key` (Windows) puis copier le contenu du fichier `.key` généré. |
+| `TAURI_SIGNING_PRIVATE_KEY` | **Contenu complet** du fichier `.key` (pas seulement la ligne base64). Générer avec : `npm run tauri signer generate -- -w $env:USERPROFILE\.tauri\monapp.key` (Windows) Copier **tout** le fichier généré, y compris la première ligne `untrusted comment: minisign secret key` — sans elle vous aurez l'erreur « Missing comment in secret key ». |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | *(Optionnel)* Mot de passe de la clé privée, uniquement si vous en avez défini un à la génération. |
 | `TAURI_UPDATE_TOKEN` | Personal Access Token GitHub avec le scope `repo` (pour accéder aux releases d’un dépôt privé). Ce token est **injecté dans le binaire** au build pour que l’app puisse vérifier les mises à jour sans configuration côté utilisateur. |
 
 **Permissions du workflow** : dans Settings → Actions → General → Workflow permissions, choisir **“Read and write permissions”** pour que le workflow puisse créer les releases.
