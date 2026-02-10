@@ -167,7 +167,7 @@ L’app intègre les mises à jour automatiques via **Tauri Updater** et les **G
 
 ### Build automatique (GitHub Actions)
 
-À chaque **push sur `master`**, un workflow construit l’app pour Windows, Linux et macOS et crée une release brouillon sur GitHub avec les artefacts.
+À chaque **push sur `master`**, un workflow construit l’app pour **Windows** et crée une release brouillon sur GitHub avec les artefacts.
 
 **Secrets à configurer** (Settings → Secrets and variables → Actions) :
 
