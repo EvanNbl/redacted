@@ -219,7 +219,9 @@ function MemberMarker({
 function PixelRatioCap() {
   const { gl } = useThree();
   useEffect(() => {
-    gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    if (typeof window !== "undefined") {
+      gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
   }, [gl]);
   return null;
 }

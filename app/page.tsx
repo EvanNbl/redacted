@@ -1,9 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseMembersFromTable } from "@/lib/member-locations";
-import { MemberMap } from "@/components/MemberMap";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
+
+const MemberMap = dynamic(() => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })), {
+  ssr: false,
+});
 import type { MemberLocation } from "@/lib/member-locations";
 import {
   RefreshCw,
