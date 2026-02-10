@@ -1,0 +1,153 @@
+/**
+ * Parse le tableau Contacts (Google Sheets) et extrait les membres avec
+ * une position géographique approximative (Pays, Ville) pour la carte.
+ */
+
+import { COUNTRIES_WITH_CAPITALS } from "./countries-data";
+
+export type MemberLocation = {
+  /** Identifiant unique (généré ou sheet-{index}) */
+  id: string;
+  pseudo: string;
+  pays: string;
+  region: string;
+  ville: string;
+  latitude: number;
+  longitude: number;
+  /** Ligne brute pour tooltip (langues, référent, etc.) */
+  rawRow: Record<string, string>;
+};
+
+/** Index des colonnes par nom d’en-tête (normalisé minuscule). */
+function getHeaderIndices(headers: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  headers.forEach((h, i) => {
+    const key = h.trim().toLowerCase().replace(/\s+/g, " ");
+    out[key] = i;
+  });
+  return out;
+}
+
+function normalize(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function buildLookups(): {
+  cityLookup: Record<string, [number, number]>;
+  countryCenter: Record<string, [number, number]>;
+} {
+  const cityLookup: Record<string, [number, number]> = {};
+  const countryCenter: Record<string, [number, number]> = {};
+  for (const { pays, capitale, lat, lon } of COUNTRIES_WITH_CAPITALS) {
+    const pNorm = normalize(pays);
+    const capNorm = normalize(capitale);
+    countryCenter[pNorm] = [lat, lon];
+    if (capNorm && pNorm) cityLookup[`${capNorm} ${pNorm}`] = [lat, lon];
+  }
+  const extra: Array<[string, string, number, number]> = [
+    ["Liège", "Belgique", 50.63, 5.57],
+    ["Lyon", "France", 45.76, 4.84],
+    ["Marseille", "France", 43.3, 5.37],
+    ["Montréal", "Canada", 45.5, -73.57],
+    ["Toronto", "Canada", 43.65, -79.38],
+    ["Genève", "Suisse", 46.2, 6.15],
+    ["Zurich", "Suisse", 47.38, 8.54],
+  ];
+  for (const [ville, pays, lat, lon] of extra) {
+    const key = `${normalize(ville)} ${normalize(pays)}`;
+    if (!cityLookup[key]) cityLookup[key] = [lat, lon];
+  }
+  const aliases: Array<[string, string]> = [
+    ["belgium", "belgique"],
+    ["switzerland", "suisse"],
+    ["germany", "allemagne"],
+    ["italy", "italie"],
+    ["spain", "espagne"],
+    ["usa", "etats-unis"],
+    ["united kingdom", "royaume-uni"],
+    ["uk", "royaume-uni"],
+    ["netherlands", "pays-bas"],
+  ];
+  for (const [alias, pays] of aliases) {
+    const pNorm = normalize(pays);
+    if (countryCenter[pNorm] && !countryCenter[alias]) {
+      countryCenter[alias] = countryCenter[pNorm];
+    }
+  }
+  return { cityLookup, countryCenter };
+}
+
+const { cityLookup: CITY_LOOKUP, countryCenter: COUNTRY_CENTER } = buildLookups();
+
+function getCoords(pays: string, ville: string): [number, number] | null {
+  const p = normalize(pays);
+  const v = normalize(ville);
+  if (v && p) {
+    const key = `${v} ${p}`;
+    if (CITY_LOOKUP[key]) return CITY_LOOKUP[key];
+  }
+  if (p && COUNTRY_CENTER[p]) return COUNTRY_CENTER[p];
+  return null;
+}
+
+/** Export pour créer un membre avec coordonnées (pays + ville). */
+export function getCoordsForMember(
+  pays: string,
+  ville: string
+): [number, number] | null {
+  return getCoords(pays, ville);
+}
+
+/**
+ * À partir du tableau renvoyé par Google Sheets (headers + rows),
+ * retourne la liste des membres avec coordonnées quand on peut les déduire.
+ */
+export function parseMembersFromTable(
+  headers: string[],
+  rows: string[][]
+): MemberLocation[] {
+  if (headers.length === 0 || rows.length === 0) return [];
+
+  const idx = getHeaderIndices(headers);
+  const pseudoCol = idx["pseudo"] ?? 0;
+  const paysCol = idx["pays"] ?? -1;
+  const regionCol = idx["region/etat"] ?? idx["region"] ?? -1;
+  const villeCol = idx["ville"] ?? -1;
+
+  const result: MemberLocation[] = [];
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    const pseudo = (row[pseudoCol] ?? "").trim();
+    const pays = paysCol >= 0 ? (row[paysCol] ?? "").trim() : "";
+    const region = regionCol >= 0 ? (row[regionCol] ?? "").trim() : "";
+    const ville = villeCol >= 0 ? (row[villeCol] ?? "").trim() : "";
+
+    if (!pays) continue;
+
+    const coords = getCoords(pays, ville);
+    if (!coords) continue;
+
+    const rawRow: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      rawRow[h.trim()] = row[i] ?? "";
+    });
+
+    result.push({
+      id: `sheet-${rowIndex}`,
+      pseudo,
+      pays,
+      region,
+      ville,
+      latitude: coords[0],
+      longitude: coords[1],
+      rawRow,
+    });
+  }
+
+  return result;
+}
