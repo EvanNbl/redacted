@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseMembersFromTable } from "@/lib/member-locations";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
+import { UpdateChecker } from "@/components/UpdateChecker";
 
 const MemberMap = dynamic(() => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })), {
   ssr: false,
@@ -68,52 +69,12 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isTauri, setIsTauri] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<
-    "idle" | "checking" | "success" | "error"
-  >("idle");
-  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setIsTauri(!!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
     }
   }, []);
-
-  const checkForUpdates = useCallback(async () => {
-    if (!isTauri) return;
-    setUpdateStatus("checking");
-    setUpdateMessage(null);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = (await invoke("check_and_install_update", {})) as {
-        available: boolean;
-        version?: string;
-        body?: string;
-        error?: string;
-        installed?: boolean;
-      };
-      if (result.error) {
-        setUpdateStatus("error");
-        setUpdateMessage(result.error);
-      } else if (result.installed && result.version) {
-        setUpdateStatus("success");
-        setUpdateMessage(
-          `Mise à jour ${result.version} installée. Redémarrage…`
-        );
-        const { relaunch } = await import("@tauri-apps/plugin-process");
-        await relaunch();
-      } else if (result.available && result.version) {
-        setUpdateStatus("success");
-        setUpdateMessage("Aucune mise à jour disponible.");
-      } else {
-        setUpdateStatus("success");
-        setUpdateMessage("Aucune mise à jour disponible.");
-      }
-    } catch (e) {
-      setUpdateStatus("error");
-      setUpdateMessage(e instanceof Error ? e.message : "Erreur de vérification");
-    }
-  }, [isTauri]);
 
   const loadFromSheet = useCallback(async () => {
     if (!SHEET_ID || !SHEET_API_KEY) {
@@ -344,16 +305,13 @@ export default function Home() {
                 </DropdownMenuItem>
                 {isTauri && (
                   <DropdownMenuItem
-                    onClick={checkForUpdates}
-                    disabled={updateStatus === "checking"}
+                    onClick={() =>
+                      window.dispatchEvent(new CustomEvent("projet-paris:check-update"))
+                    }
                     className="focus:bg-violet-600/20 focus:text-violet-100"
                   >
-                    <Download
-                      className={`size-4 ${updateStatus === "checking" ? "animate-pulse" : ""}`}
-                    />
-                    {updateStatus === "checking"
-                      ? "Vérification…"
-                      : "Vérifier les mises à jour"}
+                    <Download className="size-4" />
+                    Vérifier les mises à jour
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -390,23 +348,10 @@ export default function Home() {
           </div>
         )}
 
-        {updateMessage && (
-          <div className="mx-auto max-w-7xl px-3 pb-3 sm:px-4 sm:pb-4">
-            <div
-              className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
-                updateStatus === "error"
-                  ? "border-red-500/30 bg-red-500/10 text-red-200"
-                  : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-              }`}
-            >
-              <AlertCircle
-                className={`size-5 shrink-0 ${updateStatus === "error" ? "text-red-400" : "text-emerald-400"}`}
-              />
-              <p>{updateMessage}</p>
-            </div>
-          </div>
-        )}
       </header>
+
+      {/* Mises à jour (Tauri) : notification en bas à droite avec états et progression */}
+      {isTauri && <UpdateChecker />}
 
       {/* Zone principale : carte plein écran */}
       <main className="relative flex-1">

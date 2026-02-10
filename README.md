@@ -187,6 +187,18 @@ L’app intègre les mises à jour automatiques via **Tauri Updater** et les **G
 
 Le fichier `latest.json` est généré automatiquement par [tauri-action](https://github.com/tauri-apps/tauri-action) lors du build.
 
+### Dépannage : « Missing comment in secret key »
+
+Si le build échoue avec `failed to decode secret key: incorrect updater private key password: Missing comment in secret key` :
+
+1. Le secret **`TAURI_SIGNING_PRIVATE_KEY`** doit contenir **tout** le fichier `.key`, pas seulement la ligne base64.
+2. Ouvrez le fichier généré (ex. `~/.tauri/monapp.key`) : il doit commencer par  
+   `untrusted comment: minisign secret key`  
+   puis une ligne vide, puis la ligne base64.
+3. Dans GitHub → Settings → Secrets → Actions, éditez `TAURI_SIGNING_PRIVATE_KEY` et collez **l’intégralité** du fichier (les 3 lignes).
+4. Si vous n’avez plus le fichier, régénérez une paire de clés avec  
+   `npm run tauri signer generate -w .tauri/projet-paris.key`, copiez la **clé publique** dans `tauri.conf.json` → `plugins.updater.pubkey`, puis le **contenu complet** du fichier `.key` dans le secret.
+
 ### Note de sécurité
 
 Le token `TAURI_UPDATE_TOKEN` est présent dans le binaire compilé. Toute personne disposant de l’exécutable pourrait en théorie l’extraire. Pour limiter les risques : utiliser un token avec le scope minimal (`repo`), ou un token dédié à un dépôt unique ; en cas de fuite du binaire, révoquer le token et en créer un nouveau.
