@@ -14,6 +14,8 @@ export type MemberLocation = {
   ville: string;
   latitude: number;
   longitude: number;
+  /** True si lat/lon viennent du Sheet ; false = fallback (capitale) à améliorer par géocodage */
+  hasExactCoords: boolean;
   /** Ligne brute pour tooltip (langues, référent, etc.) */
   rawRow: Record<string, string>;
 };
@@ -117,6 +119,8 @@ export function parseMembersFromTable(
   const paysCol = idx["pays"] ?? -1;
   const regionCol = idx["region/etat"] ?? idx["region"] ?? -1;
   const villeCol = idx["ville"] ?? -1;
+  const latCol = idx["latitude"] ?? idx["lat"] ?? -1;
+  const lonCol = idx["longitude"] ?? idx["lon"] ?? -1;
 
   const result: MemberLocation[] = [];
 
@@ -127,10 +131,26 @@ export function parseMembersFromTable(
     const region = regionCol >= 0 ? (row[regionCol] ?? "").trim() : "";
     const ville = villeCol >= 0 ? (row[villeCol] ?? "").trim() : "";
 
-    if (!pays) continue;
+    // Priorité : coordonnées exactes du Sheet, sinon géocodage
+    const rawLat = latCol >= 0 ? parseFloat(row[latCol] ?? "") : NaN;
+    const rawLon = lonCol >= 0 ? parseFloat(row[lonCol] ?? "") : NaN;
 
-    const coords = getCoords(pays, ville);
-    if (!coords) continue;
+    let latitude: number;
+    let longitude: number;
+
+    let hasExactCoords: boolean;
+    if (!isNaN(rawLat) && !isNaN(rawLon)) {
+      latitude = rawLat;
+      longitude = rawLon;
+      hasExactCoords = true;
+    } else {
+      if (!pays) continue;
+      const coords = getCoords(pays, ville);
+      if (!coords) continue;
+      latitude = coords[0];
+      longitude = coords[1];
+      hasExactCoords = false;
+    }
 
     const rawRow: Record<string, string> = {};
     headers.forEach((h, i) => {
@@ -143,8 +163,9 @@ export function parseMembersFromTable(
       pays,
       region,
       ville,
-      latitude: coords[0],
-      longitude: coords[1],
+      latitude,
+      longitude,
+      hasExactCoords,
       rawRow,
     });
   }

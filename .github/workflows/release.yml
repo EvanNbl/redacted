@@ -46,9 +46,11 @@ jobs:
           NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY }}
           NEXT_PUBLIC_GOOGLE_SHEETS_RANGE: ${{ secrets.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE }}
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          NEXT_PUBLIC_UPDATER_TOKEN: ${{ secrets.TAURI_UPDATE_TOKEN }}
         with:
           tagName: app-v__VERSION__
           releaseName: "App v__VERSION__"
           releaseBody: "Voir les assets pour télécharger et installer."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false

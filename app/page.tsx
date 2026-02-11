@@ -1,14 +1,23 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { parseMembersFromTable } from "@/lib/member-locations";
+import { enrichMembersWithNominatim } from "@/lib/geocode";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { LoadingScreen } from "@/components/LoadingScreen";
+import {
+  isClientSheetsAvailable,
+  appendRowToSheet,
+  updateRowInSheet,
+} from "@/lib/sheets-client";
 
-const MemberMap = dynamic(() => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })), {
-  ssr: false,
-});
+const MemberMap = dynamic(
+  () => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })),
+  { ssr: false }
+);
+
 import type { MemberLocation } from "@/lib/member-locations";
 import {
   RefreshCw,
@@ -16,9 +25,14 @@ import {
   Search,
   AlertCircle,
   Plus,
-  ChevronDown,
   UserPlus,
   Download,
+  Filter,
+  X,
+  ChevronDown,
+  MapPin,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,34 +45,106 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 
-type ContactsTable = {
-  headers: string[];
-  rows: string[][];
-};
+/* ── Types ───────────────────────────────────────────────── */
+
+type ContactsTable = { headers: string[]; rows: string[][] };
+
+interface Filters {
+  pays: string;
+  nda: string;
+  referent: string;
+  langue: string;
+}
+
+const emptyFilters: Filters = { pays: "", nda: "", referent: "", langue: "" };
+
+/* ── Config ──────────────────────────────────────────────── */
 
 const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE =
   process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
+const useClientApi = isClientSheetsAvailable();
 
-function filterMembers(
+/* ── Filter logic ────────────────────────────────────────── */
+
+function applyFilters(
   members: MemberLocation[],
-  query: string
+  query: string,
+  filters: Filters
 ): MemberLocation[] {
-  if (!query.trim()) return members;
-  const q = query.trim().toLowerCase();
-  return members.filter(
-    (m) =>
-      m.pseudo.toLowerCase().includes(q) ||
-      m.ville?.toLowerCase().includes(q) ||
-      m.pays?.toLowerCase().includes(q) ||
-      m.region?.toLowerCase().includes(q)
-  );
+  let result = members;
+
+  // Text search
+  if (query.trim()) {
+    const q = query.trim().toLowerCase();
+    result = result.filter(
+      (m) =>
+        m.pseudo.toLowerCase().includes(q) ||
+        m.ville?.toLowerCase().includes(q) ||
+        m.pays?.toLowerCase().includes(q) ||
+        m.region?.toLowerCase().includes(q)
+    );
+  }
+
+  // Country filter
+  if (filters.pays) {
+    const p = filters.pays.toLowerCase();
+    result = result.filter((m) => m.pays?.toLowerCase() === p);
+  }
+
+  // NDA filter
+  if (filters.nda) {
+    const nda = filters.nda.trim().toLowerCase();
+    result = result.filter(
+      (m) =>
+        (m.rawRow["NDA Signée"] ?? m.rawRow["NDA Signee"] ?? "")
+          .trim()
+          .toLowerCase() === nda
+    );
+  }
+
+  // Referent filter
+  if (filters.referent) {
+    result = result.filter(
+      (m) =>
+        (m.rawRow["Referent"] ?? m.rawRow["Référent"] ?? "")
+          .trim()
+          .toLowerCase() === filters.referent.toLowerCase()
+    );
+  }
+
+  // Language filter
+  if (filters.langue) {
+    const l = filters.langue.trim().toLowerCase();
+    result = result.filter((m) =>
+      (m.rawRow["Langue(s) parlée(s)"] ?? m.rawRow["Langues"] ?? "")
+        .toLowerCase()
+        .includes(l)
+    );
+  }
+
+  return result;
 }
+
+/** Get unique sorted values for a field from all members. */
+function uniqueValues(
+  members: MemberLocation[],
+  getter: (m: MemberLocation) => string
+): string[] {
+  const set = new Set<string>();
+  for (const m of members) {
+    const v = getter(m).trim();
+    if (v) set.add(v);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+}
+
+/* ── Component ───────────────────────────────────────────── */
 
 export default function Home() {
   const [data, setData] = useState<ContactsTable | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [members, setMembers] = useState<MemberLocation[]>([]);
@@ -69,18 +155,32 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isTauri, setIsTauri] = useState(false);
+  const [firstLoad, setFirstLoad] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Filters
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setIsTauri(!!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+      setIsTauri(
+        !!(window as unknown as { __TAURI_INTERNALS__?: unknown })
+          .__TAURI_INTERNALS__
+      );
     }
   }, []);
+
+  /* ── Data loading ─────────────────────────────────────── */
 
   const loadFromSheet = useCallback(async () => {
     if (!SHEET_ID || !SHEET_API_KEY) {
       setError(
         "Configuration Google Sheets manquante. Vérifiez les variables d'environnement."
       );
+      setLoading(false);
       return;
     }
 
@@ -99,11 +199,13 @@ export default function Home() {
         const text = await res.text();
         if (res.status === 403) {
           setError(
-            "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé « Toute personne disposant du lien peut voir ». 3) Référents autorisés si la clé API est restreinte."
+            "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé. 3) La clé API est correcte."
           );
           return;
         }
-        throw new Error(`Erreur API Google Sheets (${res.status}): ${text}`);
+        throw new Error(
+          `Erreur API Google Sheets (${res.status}): ${text}`
+        );
       }
 
       const json: { values?: string[][] } = await res.json();
@@ -130,10 +232,60 @@ export default function Home() {
     void loadFromSheet();
   }, [loadFromSheet]);
 
-  const mapMembers = useMemo(
-    () => filterMembers(members, searchQuery),
-    [members, searchQuery]
+  /* ── Enrichissement géocodage (ville/pays → coordonnées réelles) ── */
+  const enrichingRef = useRef(false);
+  useEffect(() => {
+    const needsEnrich = members.some((m) => !m.hasExactCoords && m.pays.trim());
+    if (!needsEnrich || enrichingRef.current || members.length === 0) return;
+    enrichingRef.current = true;
+    enrichMembersWithNominatim(members)
+      .then((enriched) => {
+        setMembers(enriched);
+      })
+      .catch(() => {
+        /* garde les membres tels quels (capitale) */
+      })
+      .finally(() => {
+        enrichingRef.current = false;
+      });
+  }, [members]);
+
+  /* ── Derived state ────────────────────────────────────── */
+
+  const filteredMembers = useMemo(
+    () => applyFilters(members, searchQuery, filters),
+    [members, searchQuery, filters]
   );
+
+  const uniqueCountries = useMemo(
+    () => uniqueValues(members, (m) => m.pays),
+    [members]
+  );
+  const uniqueReferents = useMemo(
+    () =>
+      uniqueValues(
+        members,
+        (m) => m.rawRow["Referent"] ?? m.rawRow["Référent"] ?? ""
+      ),
+    [members]
+  );
+
+  const activeFilterCount = useMemo(() => {
+    let c = 0;
+    if (filters.pays) c++;
+    if (filters.nda) c++;
+    if (filters.referent) c++;
+    if (filters.langue) c++;
+    return c;
+  }, [filters]);
+
+  const hasData = data && data.headers.length > 0;
+  const showMap = hasData && !error;
+  const isEmpty = hasData && members.length === 0;
+  const noResults =
+    hasData && members.length > 0 && filteredMembers.length === 0;
+
+  /* ── Handlers ─────────────────────────────────────────── */
 
   const handleMemberClick = useCallback((member: MemberLocation) => {
     setSelectedMember(member);
@@ -151,35 +303,64 @@ export default function Home() {
     setSaveError(null);
   }, []);
 
+  /** Clic sur la carte (pas sur un marqueur) → ferme le panneau. */
+  const handleMapClick = useCallback(() => {
+    if (panelOpen) {
+      setPanelOpen(false);
+      setSelectedMember(null);
+      setSaveError(null);
+    }
+  }, [panelOpen]);
+
   const handleSaveMember = useCallback(
     async (updated: MemberLocation) => {
       if (updated.id.startsWith("sheet-")) {
         setSaving(true);
         setSaveError(null);
         try {
-          const res = await fetch("/api/sheets/update", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              memberId: updated.id,
-              pseudo: updated.pseudo,
-              idDiscord: updated.rawRow["ID Discord"] ?? "",
-              pays: updated.pays,
-              ville: updated.ville,
-              region: updated.region,
-              langues: updated.rawRow["Langue(s) parlée(s)"] ?? "",
-              ndaSignee: updated.rawRow["NDA Signée"] ?? "",
-              referent: updated.rawRow["Referent"] ?? "",
-              notes: updated.rawRow["Notes"] ?? "",
-            }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setSaveError(
-              json.error ?? `Erreur ${res.status} lors de l'enregistrement.`
-            );
-            throw new Error(json.error);
+          const memberData = {
+            pseudo: updated.pseudo,
+            idDiscord: updated.rawRow["ID Discord"] ?? "",
+            pays: updated.pays,
+            ville: updated.ville,
+            region: updated.region,
+            langues: updated.rawRow["Langue(s) parlée(s)"] ?? "",
+            ndaSignee: updated.rawRow["NDA Signée"] ?? "",
+            referent: updated.rawRow["Referent"] ?? "",
+            notes: updated.rawRow["Notes"] ?? "",
+            latitude: String(updated.latitude),
+            longitude: String(updated.longitude),
+          };
+
+          if (useClientApi) {
+            // Client-side direct API call
+            const result = await updateRowInSheet(updated.id, memberData);
+            if (!result.ok) {
+              setSaveError(
+                result.error ?? "Erreur lors de l'enregistrement."
+              );
+              throw new Error(result.error);
+            }
+          } else {
+            // Dev server API route fallback
+            const res = await fetch("/api/sheets/update", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                memberId: updated.id,
+                ...memberData,
+              }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setSaveError(
+                json.error ??
+                  `Erreur ${res.status} lors de l'enregistrement.`
+              );
+              throw new Error(json.error);
+            }
           }
+
           setMembers((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
@@ -200,28 +381,44 @@ export default function Home() {
       setSaving(true);
       setSaveError(null);
       try {
-        const res = await fetch("/api/sheets/append", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pseudo: newMember.pseudo,
-            idDiscord: newMember.rawRow["ID Discord"] ?? "",
-            pays: newMember.pays,
-            ville: newMember.ville,
-            region: newMember.region,
-            langues: newMember.rawRow["Langue(s) parlée(s)"] ?? "",
-            ndaSignee: newMember.rawRow["NDA Signée"] ?? "",
-            referent: newMember.rawRow["Referent"] ?? "",
-            notes: newMember.rawRow["Notes"] ?? "",
-          }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setSaveError(
-            json.error ?? `Erreur ${res.status} lors de l'ajout au tableur.`
-          );
-          throw new Error(json.error);
+        const memberData = {
+          pseudo: newMember.pseudo,
+          idDiscord: newMember.rawRow["ID Discord"] ?? "",
+          pays: newMember.pays,
+          ville: newMember.ville,
+          region: newMember.region,
+          langues: newMember.rawRow["Langue(s) parlée(s)"] ?? "",
+          ndaSignee: newMember.rawRow["NDA Signée"] ?? "",
+          referent: newMember.rawRow["Referent"] ?? "",
+          notes: newMember.rawRow["Notes"] ?? "",
+          latitude: String(newMember.latitude),
+          longitude: String(newMember.longitude),
+        };
+
+        if (useClientApi) {
+          const result = await appendRowToSheet(memberData);
+          if (!result.ok) {
+            setSaveError(
+              result.error ?? "Erreur lors de l'ajout au tableur."
+            );
+            throw new Error(result.error);
+          }
+        } else {
+          const res = await fetch("/api/sheets/append", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(memberData),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setSaveError(
+              json.error ??
+                `Erreur ${res.status} lors de l'ajout au tableur.`
+            );
+            throw new Error(json.error);
+          }
         }
+
         await loadFromSheet();
       } finally {
         setSaving(false);
@@ -230,206 +427,435 @@ export default function Home() {
     [loadFromSheet]
   );
 
-  const hasData = data && data.headers.length > 0;
-  const showMap = hasData && !error;
-  const isEmpty = hasData && members.length === 0;
-  const noResults = hasData && members.length > 0 && mapMembers.length === 0;
+  const clearFilters = useCallback(() => {
+    setFilters(emptyFilters);
+    setSearchQuery("");
+  }, []);
+
+  const handleLoadingFinished = useCallback(() => {
+    setFirstLoad(false);
+  }, []);
+
+  /* ── Filter select classes ────────────────────────────── */
+  const selectCls =
+    "h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/40 [&>option]:bg-zinc-900 [&>option]:text-white";
+
+  /* ── Render ───────────────────────────────────────────── */
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0a0a0f] text-zinc-100">
-      <header className="sticky top-0 z-20 border-b border-white/5 bg-[#0a0a0f]/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-2.5 sm:gap-4 sm:px-4 sm:py-3">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#07070b] text-zinc-100">
+      {/* Loading Screen */}
+      <LoadingScreen loading={loading && firstLoad} onFinished={handleLoadingFinished} />
 
-          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:gap-3">
-            {/* Recherche */}
-            <div className="relative flex-1 sm:w-56">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
-              <Input
-                type="search"
-                placeholder="Pseudo, ville, pays…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 border-white/10 bg-white/5 pl-9 text-white placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
-              />
-            </div>
-
-            {/* Compteur */}
-            {showMap && (
-              <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                <Users className="size-4 text-violet-400" />
-                <span className="text-zinc-400">
-                  {mapMembers.length === members.length
-                    ? `${members.length} contact${members.length > 1 ? "s" : ""}`
-                    : `${mapMembers.length} / ${members.length}`}
-                </span>
-              </div>
+      {/* ── Header ─────────────────────────────────────── */}
+      <header className="relative z-20 shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/90 backdrop-blur-xl">
+        <div className="flex items-center gap-2 px-3 py-2">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="flex size-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label={sidebarOpen ? "Fermer le panneau" : "Ouvrir le panneau"}
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose className="size-4" />
+            ) : (
+              <PanelLeftOpen className="size-4" />
             )}
+          </button>
 
-            {/* Menu Actions */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="border-violet-500/30 bg-violet-600/10 text-violet-200 hover:bg-violet-600/20 hover:text-violet-100"
-                >
-                  Actions
-                  <ChevronDown className="size-4 opacity-70" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-52 border-white/10 bg-zinc-900/95 backdrop-blur-xl"
+          {/* App title */}
+          <div className="flex items-center gap-2">
+            <div className="flex size-7 items-center justify-center rounded-lg bg-violet-600/20">
+              <MapPin className="size-3.5 text-violet-400" />
+            </div>
+            <span className="hidden text-sm font-semibold tracking-tight text-white sm:inline">
+              Contacts Map
+            </span>
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Search */}
+          <div className="relative w-48 sm:w-64">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+            <Input
+              ref={searchInputRef}
+              type="search"
+              placeholder="Rechercher…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 border-white/10 bg-white/5 pl-8 text-xs text-white placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+            />
+          </div>
+
+          {/* Counter */}
+          {showMap && (
+            <div className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs sm:flex">
+              <Users className="size-3.5 text-violet-400" />
+              <span className="text-zinc-400">
+                {filteredMembers.length === members.length
+                  ? `${members.length}`
+                  : `${filteredMembers.length}/${members.length}`}
+              </span>
+            </div>
+          )}
+
+          {/* Filter toggle */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowFilters((f) => !f)}
+            className={`relative h-8 px-2.5 text-xs ${
+              showFilters || activeFilterCount > 0
+                ? "bg-violet-600/20 text-violet-300"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Filter className="size-3.5" />
+            <span className="hidden sm:inline">Filtres</span>
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+
+          {/* Add button */}
+          {showMap && (
+            <Button
+              onClick={handleOpenAdd}
+              size="sm"
+              className="h-8 bg-violet-600 px-3 text-xs text-white hover:bg-violet-500"
+            >
+              <Plus className="size-3.5" />
+              <span className="hidden sm:inline">Ajouter</span>
+            </Button>
+          )}
+
+          {/* More actions */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-zinc-400 hover:text-white"
               >
-                <DropdownMenuLabel className="text-zinc-400">
-                  Contacts
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                {showMap && (
-                  <DropdownMenuItem
-                    onClick={handleOpenAdd}
-                    className="focus:bg-violet-600/20 focus:text-violet-100"
-                  >
-                    <UserPlus className="size-4" />
-                    Ajouter un contact
-                  </DropdownMenuItem>
-                )}
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-52 border-white/10 bg-zinc-900/95 backdrop-blur-xl"
+            >
+              <DropdownMenuLabel className="text-zinc-400">
+                Actions
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-white/10" />
+              {showMap && (
                 <DropdownMenuItem
-                  onClick={loadFromSheet}
-                  disabled={loading}
+                  onClick={handleOpenAdd}
                   className="focus:bg-violet-600/20 focus:text-violet-100"
                 >
-                  <RefreshCw
-                    className={`size-4 ${loading ? "animate-spin" : ""}`}
-                  />
-                  {loading ? "Chargement…" : "Rafraîchir les données"}
+                  <UserPlus className="size-4" />
+                  Ajouter un contact
                 </DropdownMenuItem>
-                {isTauri && (
-                  <DropdownMenuItem
-                    onClick={() =>
-                      window.dispatchEvent(new CustomEvent("projet-paris:check-update"))
-                    }
-                    className="focus:bg-violet-600/20 focus:text-violet-100"
-                  >
-                    <Download className="size-4" />
-                    Vérifier les mises à jour
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {showMap && (
-              <Button
-                onClick={handleOpenAdd}
-                variant="default"
-                className="bg-violet-600 text-white hover:bg-violet-500"
+              )}
+              <DropdownMenuItem
+                onClick={loadFromSheet}
+                disabled={loading}
+                className="focus:bg-violet-600/20 focus:text-violet-100"
               >
-                <Plus className="size-4" />
-                Ajouter
-              </Button>
-            )}
-
-            <Button
-              onClick={loadFromSheet}
-              disabled={loading}
-              className="bg-violet-600 text-white hover:bg-violet-500"
-            >
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Chargement…" : "Rafraîchir"}
-            </Button>
-          </div>
+                <RefreshCw
+                  className={`size-4 ${loading ? "animate-spin" : ""}`}
+                />
+                {loading ? "Chargement…" : "Rafraîchir les données"}
+              </DropdownMenuItem>
+              {isTauri && (
+                <DropdownMenuItem
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("projet-paris:check-update")
+                    )
+                  }
+                  className="focus:bg-violet-600/20 focus:text-violet-100"
+                >
+                  <Download className="size-4" />
+                  Vérifier les mises à jour
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
+        {/* ── Filter bar ──────────────────────────────── */}
+        {showFilters && (
+          <div className="border-t border-white/[0.04] bg-white/[0.02] px-3 py-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-0.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Pays
+                </label>
+                <select
+                  value={filters.pays}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, pays: e.target.value }))
+                  }
+                  className={selectCls}
+                >
+                  <option value="">Tous</option>
+                  {uniqueCountries.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-0.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  NDA
+                </label>
+                <select
+                  value={filters.nda}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, nda: e.target.value }))
+                  }
+                  className={selectCls}
+                >
+                  <option value="">Tous</option>
+                  <option value="Oui">Oui</option>
+                  <option value="Non">Non</option>
+                </select>
+              </div>
+
+              <div className="space-y-0.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Referent
+                </label>
+                <select
+                  value={filters.referent}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, referent: e.target.value }))
+                  }
+                  className={selectCls}
+                >
+                  <option value="">Tous</option>
+                  {uniqueReferents.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-0.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Langue
+                </label>
+                <Input
+                  type="text"
+                  value={filters.langue}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, langue: e.target.value }))
+                  }
+                  placeholder="ex. Français"
+                  className="h-8 w-28 border-white/10 bg-white/[0.04] text-xs text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40"
+                />
+              </div>
+
+              {activeFilterCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-8 text-xs text-zinc-400 hover:text-white"
+                >
+                  <X className="size-3" />
+                  Effacer
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Error bar */}
         {error && (
-          <div className="mx-auto max-w-7xl px-3 pb-3 sm:px-4 sm:pb-4">
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-              <AlertCircle className="size-5 shrink-0 text-red-400" />
+          <div className="border-t border-red-500/20 bg-red-500/5 px-3 py-2">
+            <div className="flex items-start gap-2 text-xs text-red-300">
+              <AlertCircle className="size-4 shrink-0 text-red-400" />
               <p>{error}</p>
             </div>
           </div>
         )}
-
       </header>
 
-      {/* Mises à jour (Tauri) : notification en bas à droite avec états et progression */}
-      {isTauri && <UpdateChecker />}
+      {/* ── Main content ───────────────────────────────── */}
+      <div className="relative flex min-h-0 flex-1">
+        {/* Tauri updater */}
+        {isTauri && <UpdateChecker />}
 
-      {/* Zone principale : carte plein écran */}
-      <main className="relative flex-1">
-        {!showMap && !loading && !error && (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
-            <div className="rounded-2xl bg-zinc-800/80 p-6 shadow-xl">
-              <Users className="size-12 text-zinc-500" />
-            </div>
-            <p className="text-zinc-400">
-              En attente des données du Google Sheet…
-            </p>
-            <p className="text-xs text-zinc-600">
-              Vérifiez que les variables d'environnement sont définies.
-            </p>
-          </div>
-        )}
-
-        {showMap && isEmpty && (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
-            <div className="rounded-2xl bg-amber-500/10 p-6">
-              <Users className="size-12 text-amber-500/80" />
-            </div>
-            <p className="text-zinc-300">
-              Aucun contact avec pays/ville reconnu.
-            </p>
-            <p className="max-w-md text-sm text-zinc-500">
-              Ajoutez des colonnes « Pays » et « Ville » dans votre Google Sheet
-              pour afficher les contacts sur la carte.
-            </p>
-          </div>
-        )}
-
-        {showMap && noResults && (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center">
-            <Search className="size-12 text-zinc-500" />
-            <p className="text-zinc-300">Aucun résultat pour « {searchQuery} »</p>
-            <Button
-              variant="link"
-              onClick={() => setSearchQuery("")}
-              className="text-violet-400 hover:text-violet-300"
-            >
-              Effacer la recherche
-            </Button>
-          </div>
-        )}
-
-        {showMap && mapMembers.length > 0 && (
-          <section className="absolute inset-0 z-0">
-            <MemberMap
-              members={mapMembers}
-              className="h-full w-full"
-              onMemberClick={handleMemberClick}
-            />
-          </section>
-        )}
-
-        <MemberDetailPanel
-          member={selectedMember}
-          open={panelOpen}
-          onClose={handlePanelClose}
-          onSave={handleSaveMember}
-          onAdd={handleAddMember}
-          saveError={saveError}
-          saving={saving}
-        />
-
-        {/* Overlay chargement global */}
-        {loading && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-zinc-900/90 px-8 py-6 shadow-2xl">
-              <div className="size-10 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-              <span className="text-sm text-zinc-400">
-                Chargement des contacts…
+        {/* ── Sidebar ──────────────────────────────────── */}
+        <aside
+          className={`shrink-0 border-r border-white/[0.06] bg-[#0a0a10]/80 backdrop-blur-sm transition-all duration-300 ${
+            sidebarOpen ? "w-64" : "w-0 overflow-hidden border-r-0"
+          }`}
+        >
+          <div className="flex h-full w-64 flex-col">
+            {/* Contact list header */}
+            <div className="flex items-center justify-between border-b border-white/[0.04] px-3 py-2">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Contacts
+              </span>
+              <span className="rounded-md bg-violet-600/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-400">
+                {filteredMembers.length}
               </span>
             </div>
+
+            {/* Contact list */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredMembers.length === 0 && !loading && (
+                <div className="px-3 py-8 text-center text-xs text-zinc-600">
+                  Aucun contact trouvé
+                </div>
+              )}
+              {filteredMembers.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => handleMemberClick(m)}
+                  className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                    selectedMember?.id === m.id
+                      ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                      : ""
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                    {(m.pseudo?.[0] ?? "?").toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                      {m.pseudo}
+                    </p>
+                    <p className="truncate text-[11px] text-zinc-500">
+                      {[m.ville, m.pays].filter(Boolean).join(", ")}
+                    </p>
+                  </div>
+                  {/* NDA badge */}
+                  {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
+                    (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
+                    <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                      NDA
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                      NDA
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Sidebar footer */}
+            {showMap && (
+              <div className="border-t border-white/[0.04] p-2">
+                <Button
+                  onClick={handleOpenAdd}
+                  size="sm"
+                  className="w-full bg-violet-600/20 text-xs text-violet-300 hover:bg-violet-600/30"
+                >
+                  <UserPlus className="size-3.5" />
+                  Nouveau contact
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </main>
+        </aside>
+
+        {/* ── Map area ─────────────────────────────────── */}
+        <main className="relative min-h-0 flex-1">
+          {/* Empty states */}
+          {!showMap && !loading && !error && (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
+              <div className="rounded-2xl bg-zinc-800/80 p-6 shadow-xl">
+                <Users className="size-12 text-zinc-500" />
+              </div>
+              <p className="text-zinc-400">
+                En attente des données du Google Sheet…
+              </p>
+              <p className="text-xs text-zinc-600">
+                Vérifiez que les variables d&apos;environnement sont définies.
+              </p>
+            </div>
+          )}
+
+          {showMap && isEmpty && (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
+              <div className="rounded-2xl bg-amber-500/10 p-6">
+                <Users className="size-12 text-amber-500/80" />
+              </div>
+              <p className="text-zinc-300">
+                Aucun contact avec pays/ville reconnu.
+              </p>
+              <p className="max-w-md text-sm text-zinc-500">
+                Ajoutez des colonnes « Pays » et « Ville » dans votre Google
+                Sheet pour afficher les contacts sur la carte.
+              </p>
+            </div>
+          )}
+
+          {showMap && noResults && (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
+              <Search className="size-12 text-zinc-500" />
+              <p className="text-zinc-300">
+                Aucun résultat pour « {searchQuery} »
+              </p>
+              <Button
+                variant="link"
+                onClick={clearFilters}
+                className="text-violet-400 hover:text-violet-300"
+              >
+                Effacer les filtres
+              </Button>
+            </div>
+          )}
+
+          {/* Map */}
+          {showMap && filteredMembers.length > 0 && (
+            <section className="absolute inset-0 z-0">
+              <MemberMap
+                members={filteredMembers}
+                className="h-full w-full"
+                onMemberClick={handleMemberClick}
+                onMapClick={handleMapClick}
+              />
+            </section>
+          )}
+
+          {/* Detail panel */}
+          <MemberDetailPanel
+            member={selectedMember}
+            open={panelOpen}
+            onClose={handlePanelClose}
+            onSave={handleSaveMember}
+            onAdd={handleAddMember}
+            saveError={saveError}
+            saving={saving}
+          />
+
+          {/* Loading overlay (after first load) */}
+          {loading && !firstLoad && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-zinc-900/90 px-8 py-6 shadow-2xl">
+                <div className="size-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+                <span className="text-xs text-zinc-400">
+                  Actualisation…
+                </span>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

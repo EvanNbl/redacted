@@ -12,19 +12,21 @@ export interface MemberMapProps {
   members: MemberLocation[];
   className?: string;
   onMemberClick?: (member: MemberLocation) => void;
+  onMapClick?: () => void;
 }
 
 export function MemberMap({
   members,
   className = "",
   onMemberClick,
+  onMapClick,
 }: MemberMapProps) {
-  const [mode, setMode] = useState<MapMode>("3d");
+  const [mode, setMode] = useState<MapMode>("flat");
 
   return (
     <div className={`relative h-full min-h-[400px] w-full overflow-hidden bg-black ${className}`}>
-      {/* Toggle 3D / Carte plate — z-[1000] pour rester au-dessus de Leaflet (panneaux 200–700) */}
-      <div className="absolute right-4 top-4 z-[1000] flex overflow-hidden rounded-xl border border-white/10 bg-black/60 shadow-xl backdrop-blur-md">
+      {/* Toggle 3D / Carte plate */}
+      <div className="absolute left-4 top-4 z-[1000] flex overflow-hidden rounded-xl border border-white/10 bg-black/60 shadow-xl backdrop-blur-md">
         <Button
           type="button"
           variant="ghost"
@@ -64,12 +66,14 @@ export function MemberMap({
           members={members}
           className="absolute inset-0 z-0 rounded-lg"
           onMemberClick={onMemberClick}
+          onMapClick={onMapClick}
         />
       ) : (
         <FlatMapView
           members={members}
           className="absolute inset-0 z-0 rounded-lg"
           onMemberClick={onMemberClick}
+          onMapClick={onMapClick}
         />
       )}
     </div>

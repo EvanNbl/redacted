@@ -16,9 +16,6 @@ import type { MemberLocation } from "@/lib/member-locations";
 const CAMERA_POS = new THREE.Vector3();
 
 const SHARED_SPHERE_EARTH = new THREE.SphereGeometry(1, 48, 48);
-const SHARED_SPHERE_MARKER_OUTER = new THREE.SphereGeometry(0.022, 8, 8);
-const SHARED_SPHERE_MARKER_INNER = new THREE.SphereGeometry(0.012, 8, 8);
-const DUMMY_OBJECT = new THREE.Object3D();
 
 function latLonToPosition(
   latDeg: number,
@@ -33,9 +30,10 @@ function latLonToPosition(
   return [x, y, z];
 }
 
-class GlobeErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode }
-> {
+class GlobeErrorBoundary extends React.Component<{
+  children: React.ReactNode;
+  fallback: React.ReactNode;
+}> {
   state = { hasError: false };
 
   static getDerivedStateFromError() {
@@ -43,67 +41,38 @@ class GlobeErrorBoundary extends React.Component<
   }
 
   render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
+    if (this.state.hasError) return this.props.fallback;
     return this.props.children;
   }
 }
 
+/* ── Starfield ───────────────────────────────────────────── */
+
 const STAR_COLORS = [
-  [1.0, 0.98, 1.0],
-  [0.9, 0.95, 1.0],
-  [0.95, 0.97, 1.0],
-  [1.0, 1.0, 0.9],
-  [1.0, 0.95, 0.8],
-  [1.0, 0.9, 0.7],
-  [1.0, 0.85, 0.75],
-  [1.0, 0.8, 0.8],
-  [0.95, 0.85, 0.9],
+  [1.0, 0.98, 1.0], [0.9, 0.95, 1.0], [0.95, 0.97, 1.0],
+  [1.0, 1.0, 0.9], [1.0, 0.95, 0.8], [1.0, 0.9, 0.7],
 ] as const;
 
 function Starfield() {
-  const count = 5000;
+  const count = 4000;
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(count * 3);
     const col = new Float32Array(count * 3);
-
     for (let i = 0; i < count; i++) {
-      const u = Math.random();
-      let r: number, theta: number, phi: number;
-      if (u < 0.35) {
-        r = 72 + Math.random() * 55;
-        theta = Math.random() * Math.PI * 2;
-        phi = Math.PI * 0.4 + Math.random() * Math.PI * 0.5;
-      } else if (u < 0.85) {
-        r = 70 + Math.random() * 60;
-        theta = Math.random() * Math.PI * 2;
-        phi = Math.acos(2 * Math.random() - 1);
-      } else {
-        r = 75 + Math.random() * 55;
-        theta = Math.random() * Math.PI * 2;
-        phi =
-          Math.random() < 0.5
-            ? Math.acos(2 * Math.random() * 0.4 - 0.4)
-            : Math.acos(1 - 2 * Math.random() * 0.4);
-      }
-
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta);
-      const z = r * Math.cos(phi);
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = y;
-      pos[i * 3 + 2] = z;
-
+      const r = 70 + Math.random() * 60;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      pos[i * 3 + 2] = r * Math.cos(phi);
       const colorIdx = Math.floor(Math.random() * STAR_COLORS.length);
       const [cr, cg, cb] = STAR_COLORS[colorIdx];
-      const brightness = 0.7 + Math.random() * 0.35;
-      col[i * 3] = cr * brightness;
-      col[i * 3 + 1] = cg * brightness;
-      col[i * 3 + 2] = cb * brightness;
+      const b = 0.7 + Math.random() * 0.35;
+      col[i * 3] = cr * b;
+      col[i * 3 + 1] = cg * b;
+      col[i * 3 + 2] = cb * b;
     }
-
     geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
     return geo;
@@ -125,6 +94,8 @@ function Starfield() {
   return <points geometry={geometry} material={material} />;
 }
 
+/* ── Earth ───────────────────────────────────────────────── */
+
 function EarthFallback() {
   return (
     <mesh geometry={SHARED_SPHERE_EARTH}>
@@ -137,7 +108,6 @@ function Earth() {
   const texture = useTexture("/textures/earth.jpg");
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.anisotropy = 2;
-
   return (
     <mesh geometry={SHARED_SPHERE_EARTH}>
       <meshBasicMaterial map={texture} />
@@ -145,6 +115,9 @@ function Earth() {
   );
 }
 
+/* ── Marker ──────────────────────────────────────────────── */
+
+/** Single member marker on the globe. Label only on hover to avoid overlap. */
 function MemberMarker({
   member,
   position,
@@ -156,7 +129,7 @@ function MemberMarker({
   visible: boolean;
   onClick: (member: MemberLocation) => void;
 }) {
-  if (!visible) return null;
+  const [hovered, setHovered] = useState(false);
 
   const handleClick = useCallback(
     (e: { stopPropagation: () => void }) => {
@@ -167,11 +140,15 @@ function MemberMarker({
   );
 
   const onPointerOver = useCallback(() => {
+    setHovered(true);
     document.body.style.cursor = "pointer";
   }, []);
   const onPointerOut = useCallback(() => {
+    setHovered(false);
     document.body.style.cursor = "default";
   }, []);
+
+  if (!visible) return null;
 
   return (
     <group
@@ -180,41 +157,43 @@ function MemberMarker({
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
     >
-      <mesh geometry={SHARED_SPHERE_MARKER_OUTER}>
+      <mesh>
+        <sphereGeometry args={[0.006, 6, 6]} />
         <meshBasicMaterial
-          color="#8e51ff"
+          color="#a78bfa"
           transparent
-          opacity={0.3}
+          opacity={0.4}
           depthWrite={false}
         />
       </mesh>
-      <mesh geometry={SHARED_SPHERE_MARKER_INNER}>
-        <meshBasicMaterial color="#ddbbff" />
+      <mesh>
+        <sphereGeometry args={[0.003, 6, 6]} />
+        <meshBasicMaterial color="#e9d5ff" />
       </mesh>
-      <Html
-        position={[0, 0.06, 0]}
-        center
-        distanceFactor={5}
-        occlude={false}
-        zIndexRange={[100, 0]}
-        style={{
-          pointerEvents: "none",
-          userSelect: "none",
-          whiteSpace: "nowrap",
-          fontSize: "6px",
-          color: "#fff",
-          textShadow: "0 0 1px #000, 0 1px 3px #000",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        <span className="rounded-md border border-violet-500/40 bg-black/80 px-2 py-1">
-          {member.pseudo}
-          {member.ville ? ` — ${member.ville}` : ""}
-        </span>
-      </Html>
+      {/* Nom affiché uniquement au survol pour éviter les chevauchements */}
+      {hovered && (
+        <Html
+          position={[0, 0.02, 0]}
+          center
+          distanceFactor={6}
+          occlude={false}
+          zIndexRange={[100, 0]}
+          style={{
+            pointerEvents: "none",
+            userSelect: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <div className="globe-label globe-label-small">
+            {member.pseudo}
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
+
+/* ── Scene ───────────────────────────────────────────────── */
 
 function PixelRatioCap() {
   const { gl } = useThree();
@@ -229,9 +208,11 @@ function PixelRatioCap() {
 function GlobeScene({
   members,
   onMemberClick,
+  onMapClick,
 }: {
   members: MemberLocation[];
   onMemberClick: (member: MemberLocation) => void;
+  onMapClick?: () => void;
 }) {
   const { camera } = useThree();
   const positions = useMemo(
@@ -260,6 +241,11 @@ function GlobeScene({
     if (changed) setVisible(next);
   });
 
+  // Click on the globe (earth mesh) itself → close panel
+  const handleEarthClick = useCallback(() => {
+    onMapClick?.();
+  }, [onMapClick]);
+
   return (
     <>
       <PixelRatioCap />
@@ -270,6 +256,7 @@ function GlobeScene({
       <directionalLight position={[8, 6, 5]} intensity={2} />
       <directionalLight position={[-4, -2, -3]} intensity={0.25} />
       <directionalLight position={[0, 0, 10]} intensity={0.5} />
+
       {members.map((member, i) => (
         <MemberMarker
           key={member.id ?? `${member.pseudo}-${member.ville}-${i}`}
@@ -279,11 +266,14 @@ function GlobeScene({
           onClick={onMemberClick}
         />
       ))}
-      <GlobeErrorBoundary
-        fallback={<EarthFallback />}
-      >
-        <Earth />
+
+      {/* Clickable earth sphere */}
+      <GlobeErrorBoundary fallback={<EarthFallback />}>
+        <group onClick={handleEarthClick}>
+          <Earth />
+        </group>
       </GlobeErrorBoundary>
+
       <OrbitControls
         enableZoom
         enablePan={false}
@@ -296,16 +286,20 @@ function GlobeScene({
   );
 }
 
+/* ── Export ───────────────────────────────────────────────── */
+
 export interface GlobeViewProps {
   members: MemberLocation[];
   className?: string;
   onMemberClick?: (member: MemberLocation) => void;
+  onMapClick?: () => void;
 }
 
 export function GlobeView({
   members,
   className = "",
   onMemberClick = () => {},
+  onMapClick,
 }: GlobeViewProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -342,7 +336,9 @@ export function GlobeView({
             8192
           );
           const canvas = gl.domElement;
-          canvas.addEventListener("webglcontextlost", (e) => e.preventDefault());
+          canvas.addEventListener("webglcontextlost", (e) =>
+            e.preventDefault()
+          );
         }}
       >
         <Suspense
@@ -353,7 +349,11 @@ export function GlobeView({
             </mesh>
           }
         >
-          <GlobeScene members={members} onMemberClick={onMemberClick} />
+          <GlobeScene
+            members={members}
+            onMemberClick={onMemberClick}
+            onMapClick={onMapClick}
+          />
         </Suspense>
       </Canvas>
     </div>

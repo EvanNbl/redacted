@@ -11,6 +11,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   ndaSignee: ["nda signée", "nda signee", "nda"],
   referent: ["referent", "réferent", "référent"],
   notes: ["notes"],
+  latitude: ["latitude", "lat"],
+  longitude: ["longitude", "lon"],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -45,6 +47,8 @@ export async function POST(request: Request) {
       ndaSignee = "",
       referent = "",
       notes = "",
+      latitude = "",
+      longitude = "",
     }: {
       pseudo?: string;
       idDiscord?: string;
@@ -55,6 +59,8 @@ export async function POST(request: Request) {
       ndaSignee?: string;
       referent?: string;
       notes?: string;
+      latitude?: string;
+      longitude?: string;
     } = body;
 
     const spreadsheetId =
@@ -120,6 +126,8 @@ export async function POST(request: Request) {
     const ndaSigneeCol = findColumnIndex(indices, HEADER_ALIASES.ndaSignee);
     const referentCol = findColumnIndex(indices, HEADER_ALIASES.referent);
     const notesCol = findColumnIndex(indices, HEADER_ALIASES.notes);
+    const latitudeCol = findColumnIndex(indices, HEADER_ALIASES.latitude);
+    const longitudeCol = findColumnIndex(indices, HEADER_ALIASES.longitude);
 
     const newRow: string[] = Array(headerRow.length).fill("");
     if (pseudoCol >= 0) newRow[pseudoCol] = String(pseudo ?? "").trim();
@@ -131,6 +139,8 @@ export async function POST(request: Request) {
     if (ndaSigneeCol >= 0) newRow[ndaSigneeCol] = String(ndaSignee ?? "").trim();
     if (referentCol >= 0) newRow[referentCol] = String(referent ?? "").trim();
     if (notesCol >= 0) newRow[notesCol] = String(notes ?? "").trim();
+    if (latitudeCol >= 0) newRow[latitudeCol] = String(latitude ?? "").trim();
+    if (longitudeCol >= 0) newRow[longitudeCol] = String(longitude ?? "").trim();
 
     const appendRange = `${sheetName}!A:Z`;
     await sheets.spreadsheets.values.append({
