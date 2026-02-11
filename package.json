@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "generate-ico": "node scripts/generate-ico.cjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -40,6 +41,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "png-to-ico": "^3.0.1",
     "shadcn": "^3.8.4",
     "sharp": "^0.34.5",
     "tailwindcss": "^4",
