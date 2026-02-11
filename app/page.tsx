@@ -11,6 +11,7 @@ import {
   isClientSheetsAvailable,
   appendRowToSheet,
   updateRowInSheet,
+  deleteRowInSheet,
 } from "@/lib/sheets-client";
 
 const MemberMap = dynamic(
@@ -154,6 +155,7 @@ export default function Home() {
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [isTauri, setIsTauri] = useState(false);
   const [firstLoad, setFirstLoad] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -422,6 +424,49 @@ export default function Home() {
         await loadFromSheet();
       } finally {
         setSaving(false);
+      }
+    },
+    [loadFromSheet]
+  );
+
+  const handleDeleteMember = useCallback(
+    async (member: MemberLocation) => {
+      if (!member.id.startsWith("sheet-")) {
+        // Local member, just remove from state
+        setMembers((prev) => prev.filter((m) => m.id !== member.id));
+        return;
+      }
+
+      setDeleting(true);
+      setSaveError(null);
+      try {
+        if (useClientApi) {
+          const result = await deleteRowInSheet(member.id);
+          if (!result.ok) {
+            setSaveError(
+              result.error ?? "Erreur lors de la suppression."
+            );
+            throw new Error(result.error);
+          }
+        } else {
+          const res = await fetch("/api/sheets/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ memberId: member.id }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setSaveError(
+              json.error ??
+                `Erreur ${res.status} lors de la suppression.`
+            );
+            throw new Error(json.error);
+          }
+        }
+
+        await loadFromSheet();
+      } finally {
+        setDeleting(false);
       }
     },
     [loadFromSheet]
@@ -839,8 +884,10 @@ export default function Home() {
             onClose={handlePanelClose}
             onSave={handleSaveMember}
             onAdd={handleAddMember}
+            onDelete={handleDeleteMember}
             saveError={saveError}
             saving={saving}
+            deleting={deleting}
           />
 
           {/* Loading overlay (after first load) */}

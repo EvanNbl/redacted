@@ -15,6 +15,25 @@ import "leaflet.markercluster";
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
+/**
+ * Corrige les coordonnées si elles sont inversées.
+ * Retourne [latitude, longitude] dans le bon ordre pour Leaflet.
+ */
+function normalizeCoords(latitude: number, longitude: number): [number, number] {
+  let lat = latitude;
+  let lon = longitude;
+  
+  const latInRange = lat >= -90 && lat <= 90;
+  const lonInRange = lon >= -180 && lon <= 180;
+  
+  // Si les coordonnées semblent inversées, les corriger
+  if ((!latInRange && lonInRange) || (latInRange && !lonInRange)) {
+    [lat, lon] = [lon, lat];
+  }
+  
+  return [lat, lon];
+}
+
 function escapeHtml(s: string): string {
   const div =
     typeof document !== "undefined" ? document.createElement("div") : null;
@@ -156,6 +175,8 @@ function FlatMapInner({
   const countryLayerRef = useRef<L.GeoJSON | null>(null);
   const onMemberClickRef = useRef(onMemberClick);
   const onMapClickRef = useRef(onMapClick);
+  const membersRef = useRef(members);
+  const colorCountriesRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     onMemberClickRef.current = onMemberClick;
@@ -163,6 +184,111 @@ function FlatMapInner({
   useEffect(() => {
     onMapClickRef.current = onMapClick;
   }, [onMapClick]);
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
+
+  // Helper function to extract ISO3 from GeoJSON feature
+  const getFeatureISO3 = useCallback((feature: GeoJSON.Feature): string | undefined => {
+    if (!feature) return undefined;
+    
+    const props = feature.properties || {};
+    const featureId = feature.id;
+    
+    // Try multiple methods to get ISO3:
+    // 1. From numeric ID (world-atlas format)
+    // Handle both string and number IDs, and remove leading zeros
+    if (featureId !== undefined && featureId !== null) {
+      // Convert to string, handling both number and string IDs
+      let idStr = typeof featureId === 'number' ? String(featureId) : String(featureId);
+      // Remove leading zeros (e.g., "056" -> "56")
+      idStr = idStr.replace(/^0+/, '') || '0';
+      const numericISO3 = numericToISO3(idStr);
+      if (numericISO3) return numericISO3;
+    }
+    
+    // 2. From properties (various possible property names)
+    const possibleProps = [
+      props.ISO_A3,
+      props.ISO_A3_EH,
+      props.iso_a3,
+      props.ISO3,
+      props.iso3,
+      props.ADM0_A3,
+      props.adm0_a3,
+    ];
+    
+    for (const prop of possibleProps) {
+      if (prop && typeof prop === 'string' && prop.length === 3) {
+        return prop.toUpperCase();
+      }
+    }
+    
+    // 3. If feature.id is already an ISO3 code (3 letters)
+    if (featureId && typeof featureId === 'string' && featureId.length === 3) {
+      return featureId.toUpperCase();
+    }
+    
+    return undefined;
+  }, []);
+
+  // Function to color countries based on active members
+  const colorCountries = useCallback(() => {
+    const geoLayer = countryLayerRef.current;
+    if (!geoLayer) return;
+    
+    const activeISOs = getActiveCountryISOs(membersRef.current);
+    
+    // Debug: log active ISOs
+    if (activeISOs.size > 0) {
+      console.log("Active ISO3 codes:", Array.from(activeISOs));
+    }
+    
+    geoLayer.eachLayer((layer) => {
+      const feature = (layer as L.GeoJSON & { feature?: GeoJSON.Feature })
+        .feature;
+      if (!feature) return;
+      
+      const featureISO3 = getFeatureISO3(feature);
+      
+      // Debug: log Belgium specifically to see what's happening
+      const props = feature.properties || {};
+      const name = props.name || props.NAME || props.NAME_EN || '';
+      if (name && (name.toLowerCase().includes('belgium') || name.toLowerCase().includes('belgique'))) {
+        console.log(`Belgium feature found:`, {
+          id: feature.id,
+          idType: typeof feature.id,
+          featureISO3,
+          props: feature.properties,
+          isActive: featureISO3 && activeISOs.has(featureISO3),
+          activeISOs: Array.from(activeISOs),
+        });
+      }
+      
+      // Debug: log features that match active countries
+      if (featureISO3 && activeISOs.has(featureISO3)) {
+        console.log(`Coloring country: ${featureISO3}`, {
+          id: feature.id,
+          props: feature.properties,
+        });
+      }
+      
+      const isActive = featureISO3 && activeISOs.has(featureISO3);
+
+      (layer as L.Path).setStyle({
+        fillColor: isActive ? "#8b5cf6" : "transparent",
+        fillOpacity: isActive ? 0.2 : 0,
+        color: isActive
+          ? "rgba(139,92,246,0.4)"
+          : "rgba(255,255,255,0.05)",
+        weight: isActive ? 1 : 0.5,
+      });
+    });
+  }, [getFeatureISO3]);
+
+  useEffect(() => {
+    colorCountriesRef.current = colorCountries;
+  }, [colorCountries]);
 
   // Initialize map (once)
   useEffect(() => {
@@ -248,6 +374,8 @@ function FlatMapInner({
       }).addTo(mapInstanceRef.current);
       geoLayer.bringToBack();
       countryLayerRef.current = geoLayer;
+      // Color countries once GeoJSON is loaded
+      colorCountriesRef.current?.();
     });
 
     return () => {
@@ -268,35 +396,15 @@ function FlatMapInner({
     cluster.clearLayers();
 
     // ── Color countries with members ──
-    const activeISOs = getActiveCountryISOs(members);
-    const geoLayer = countryLayerRef.current;
-    if (geoLayer) {
-      geoLayer.eachLayer((layer) => {
-        const feature = (layer as L.GeoJSON & { feature?: GeoJSON.Feature })
-          .feature;
-        if (!feature) return;
-        // world-atlas uses feature.id as the ISO numeric code
-        // We need to match against our active ISOs
-        const featureId = String(feature.id ?? "");
-        const featureISO3 =
-          feature.properties?.ISO_A3 || numericToISO3(featureId);
-        const isActive = featureISO3 && activeISOs.has(featureISO3);
-
-        (layer as L.Path).setStyle({
-          fillColor: isActive ? "#8b5cf6" : "transparent",
-          fillOpacity: isActive ? 0.2 : 0,
-          color: isActive
-            ? "rgba(139,92,246,0.4)"
-            : "rgba(255,255,255,0.05)",
-          weight: isActive ? 1 : 0.5,
-        });
-      });
-    }
+    colorCountries();
 
     // ── Markers with full name ──
     const markers: L.Marker[] = [];
     for (const member of members) {
-      const marker = L.marker([member.latitude, member.longitude], {
+      // Leaflet utilise [latitude, longitude]
+      const [lat, lon] = normalizeCoords(member.latitude, member.longitude);
+      
+      const marker = L.marker([lat, lon], {
         icon: createNamePin(member),
       });
 
@@ -313,14 +421,15 @@ function FlatMapInner({
 
     // Fit bounds
     if (members.length === 1) {
-      map.setView([members[0].latitude, members[0].longitude], 6);
+      const [lat, lon] = normalizeCoords(members[0].latitude, members[0].longitude);
+      map.setView([lat, lon], 6);
     } else if (members.length > 1) {
       const bounds = L.latLngBounds(
-        members.map((m) => [m.latitude, m.longitude] as [number, number])
+        members.map((m) => normalizeCoords(m.latitude, m.longitude))
       );
       map.fitBounds(bounds.pad(0.2), { maxZoom: 6 });
     }
-  }, [members]);
+  }, [members, colorCountries]);
 
   return (
     <div ref={mapRef} className={`h-full w-full bg-zinc-900 ${className}`} />

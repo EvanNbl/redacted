@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import type { MemberLocation } from "@/lib/member-locations";
 import { getCoordsForMember } from "@/lib/member-locations";
-import { Save, UserPlus, X, MapPin } from "lucide-react";
+import { Save, UserPlus, X, MapPin, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -23,8 +23,10 @@ export interface MemberDetailPanelProps {
   onClose: () => void;
   onSave: (member: MemberLocation) => void | Promise<void>;
   onAdd: (member: MemberLocation) => void | Promise<void>;
+  onDelete?: (member: MemberLocation) => void | Promise<void>;
   saveError?: string | null;
   saving?: boolean;
+  deleting?: boolean;
 }
 
 function getFromRawRow(
@@ -82,8 +84,10 @@ export function MemberDetailPanel({
   onClose,
   onSave,
   onAdd,
+  onDelete,
   saveError = null,
   saving = false,
+  deleting = false,
 }: MemberDetailPanelProps) {
   const isNew = member === null;
   const [form, setForm] = useState(emptyForm);
@@ -91,6 +95,7 @@ export function MemberDetailPanel({
   const [geocodedCoords, setGeocodedCoords] = useState<
     [number, number] | null
   >(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (member) {
@@ -118,6 +123,7 @@ export function MemberDetailPanel({
       setCoordsError(null);
       setGeocodedCoords(null);
     }
+    setShowDeleteConfirm(false);
   }, [member, open]);
 
   const handleAddressSelect = (suggestion: AddressSuggestion) => {
@@ -196,6 +202,25 @@ export function MemberDetailPanel({
     } catch {
       /* error shown via saveError */
     }
+  };
+
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!member || !onDelete) return;
+    try {
+      await Promise.resolve(onDelete(member));
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch {
+      /* error shown via saveError */
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
   };
 
   if (!open) return null;
@@ -474,18 +499,29 @@ export function MemberDetailPanel({
             {/* Footer */}
             <div className="shrink-0 border-t border-white/[0.06] bg-black/30 px-5 py-3">
               <div className="flex gap-3">
+                {!isNew && onDelete && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleDeleteClick}
+                    disabled={saving || deleting}
+                    className="text-red-400 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={onClose}
-                  disabled={saving}
+                  disabled={saving || deleting}
                   className="flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"
                 >
                   Annuler
                 </Button>
                 <Button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || deleting}
                   className="flex flex-1 items-center justify-center gap-2 bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-70"
                 >
                   {saving ? (
@@ -506,6 +542,55 @@ export function MemberDetailPanel({
             </div>
           </form>
         </div>
+
+        {/* Confirmation de suppression */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+            <div className="mx-4 w-full max-w-sm rounded-xl border border-red-500/20 bg-zinc-900 p-6 shadow-2xl">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-red-500/20">
+                  <Trash2 className="size-5 text-red-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">
+                  Supprimer le contact
+                </h3>
+              </div>
+              <p className="mb-6 text-sm text-zinc-400">
+                Êtes-vous sûr de vouloir supprimer{" "}
+                <span className="font-medium text-white">
+                  {member?.pseudo || "ce contact"}
+                </span>
+                ? Cette action est irréversible.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleDeleteCancel}
+                  disabled={deleting}
+                  className="flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"
+                >
+                  Annuler
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleDeleteConfirm}
+                  disabled={deleting}
+                  className="flex flex-1 items-center justify-center gap-2 bg-red-600 text-white hover:bg-red-500 disabled:opacity-70"
+                >
+                  {deleting ? (
+                    "Suppression…"
+                  ) : (
+                    <>
+                      <Trash2 className="size-4" />
+                      Supprimer
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </aside>
   );
 }

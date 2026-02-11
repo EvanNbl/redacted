@@ -332,3 +332,88 @@ export async function updateRowInSheet(
     return { ok: false, error: msg };
   }
 }
+
+export async function deleteRowInSheet(
+  memberId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const creds = parseServiceAccountKey();
+  if (!creds)
+    return {
+      ok: false,
+      error:
+        "Clé du compte de service non configurée (NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY).",
+    };
+  if (!memberId?.startsWith("sheet-"))
+    return { ok: false, error: "memberId invalide." };
+
+  const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
+  const rangeA1 =
+    process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
+  if (!spreadsheetId)
+    return { ok: false, error: "ID du tableur non configuré." };
+
+  try {
+    const token = await getAccessToken(creds);
+    const rowIndex = parseInt(memberId.replace(/^sheet-/, ""), 10);
+    if (Number.isNaN(rowIndex) || rowIndex < 0)
+      return { ok: false, error: "Index de ligne invalide." };
+
+    const sheetRowNum = rowIndex + 2;
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? "Contacts").replace(
+      /^'|'$/g,
+      ""
+    );
+
+    // Get sheet ID
+    const sheetsRes = await fetch(
+      `${SHEETS_API}/${spreadsheetId}?fields=sheets.properties`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!sheetsRes.ok)
+      throw new Error(`Lecture des feuilles échouée : ${sheetsRes.status}`);
+    const sheetsData = await sheetsRes.json();
+    const sheet = sheetsData.sheets?.find(
+      (s: { properties?: { title?: string; sheetId?: number } }) =>
+        s.properties?.title === sheetName
+    );
+    if (!sheet?.properties?.sheetId)
+      throw new Error(`Feuille "${sheetName}" introuvable.`);
+
+    // Delete row using batchUpdate
+    const batchUpdateRes = await fetch(
+      `${SHEETS_API}/${spreadsheetId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId: sheet.properties.sheetId,
+                  dimension: "ROWS",
+                  startIndex: sheetRowNum - 1,
+                  endIndex: sheetRowNum,
+                },
+              },
+            },
+          ],
+        }),
+      }
+    );
+    if (!batchUpdateRes.ok) {
+      const text = await batchUpdateRes.text();
+      throw new Error(`Suppression échouée : ${batchUpdateRes.status} ${text}`);
+    }
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur inconnue";
+    console.error("sheets-client delete:", e);
+    return { ok: false, error: msg };
+  }
+}
