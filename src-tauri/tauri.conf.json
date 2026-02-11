@@ -19,7 +19,9 @@
         "fullscreen": false
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.github.com https://sheets.googleapis.com;"
+    }
   },
   "bundle": {
     "active": true,
@@ -27,13 +29,30 @@
     "icon": [
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": null,
+      "tsp": false,
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": false
+      },
+      "allowDowngrades": false,
+      "wix": {
+        "language": "fr-FR",
+        "template": null,
+        "bannerPath": null,
+        "fipsCompliant": false
+      }
+    }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwMkVFRTlFRjM3MjQxMjkKUldRcFFYTHpudTR1RUtzeGo5d1UvYkJLZWY4UGx1UDBaS01jLzVlQUpJaFFDZE1LZmJlWDdtNEQK",
       "endpoints": [
-        "https://api.github.com/repos/EvanNbl/redacted/releases/latest"
+        "https://github.com/EvanNbl/redacted/releases/latest/download/latest.json"
       ]
     }
   }

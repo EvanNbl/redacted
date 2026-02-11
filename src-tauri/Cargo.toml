@@ -28,3 +28,15 @@ dotenvy = "0.15"
 tauri-plugin-updater = { version = "2" }
 tauri-plugin-process = { version = "2" }
 reqwest = { version = "0.12", features = ["json"] }
+
+# Optimisations de build pour la production
+[profile.release]
+opt-level = "z"      # Optimise pour la taille (meilleur pour les apps desktop)
+lto = "thin"         # Link Time Optimization pour réduire la taille
+codegen-units = 1    # Meilleure optimisation au prix d'un build plus long
+strip = true         # Supprime les symboles de debug
+panic = "abort"      # Réduit la taille du binaire
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true         # Garde les symboles pour le debugging si nécessaire
