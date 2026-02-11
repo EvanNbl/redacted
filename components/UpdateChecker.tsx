@@ -114,9 +114,36 @@ export function UpdateChecker() {
   /* ─── Installation via plugin Tauri (avec progression) ─── */
   const installUpdate = useCallback(async () => {
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      
+      // D'abord, vérifier les mises à jour avec la commande Rust qui configure les headers côté serveur
+      // Cela garantit que latest.json est téléchargé avec les headers d'authentification
+      const updateInfo = (await invoke("check_update_with_auth", {})) as {
+        available: boolean;
+        version: string | null;
+        body: string | null;
+        error: string | null;
+      };
+
+      if (!updateInfo.available || updateInfo.error) {
+        setStatus({
+          state: "error",
+          message: updateInfo.error || "Aucune mise à jour disponible",
+        });
+        return;
+      }
+
+      // Maintenant, utiliser le plugin updater pour télécharger avec progression
+      // Les headers sont déjà configurés côté serveur pour télécharger latest.json
       const { check } = await import("@tauri-apps/plugin-updater");
       const update = await check({ headers: getAuthHeaders() });
-      if (!update) return;
+      if (!update) {
+        setStatus({
+          state: "error",
+          message: "Impossible de vérifier la mise à jour",
+        });
+        return;
+      }
 
       downloadProgress.current = { downloaded: 0, contentLength: 0 };
       setStatus({ state: "downloading", progress: 0 });

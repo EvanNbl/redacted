@@ -87,6 +87,79 @@ mod updater_cmd {
         pub installed: bool,
     }
 
+    #[derive(Debug, Serialize)]
+    pub struct UpdateInfo {
+        pub available: bool,
+        pub version: Option<String>,
+        pub body: Option<String>,
+        pub error: Option<String>,
+    }
+
+    /// Vérifie les mises à jour avec les headers d'authentification configurés côté serveur.
+    /// Cette commande configure correctement les headers pour télécharger latest.json depuis un dépôt privé.
+    #[tauri::command]
+    pub async fn check_update_with_auth(app: AppHandle) -> UpdateInfo {
+        // Token injecté à la compilation (CI) ou variables d'environnement au runtime
+        let token = option_env!("TAURI_UPDATE_TOKEN")
+            .map(String::from)
+            .or_else(|| std::env::var("GITHUB_TOKEN").ok())
+            .or_else(|| std::env::var("TAURI_UPDATE_TOKEN").ok());
+
+        let mut builder = app.updater_builder();
+        if let Some(t) = token {
+            builder = match builder.header("Authorization", format!("Bearer {}", t)) {
+                Ok(b) => b,
+                Err(e) => {
+                    return UpdateInfo {
+                        available: false,
+                        version: None,
+                        body: None,
+                        error: Some(e.to_string()),
+                    };
+                }
+            };
+        }
+
+        let updater = match builder.build() {
+            Ok(u) => u,
+            Err(e) => {
+                return UpdateInfo {
+                    available: false,
+                    version: None,
+                    body: None,
+                    error: Some(e.to_string()),
+                };
+            }
+        };
+
+        let update = match updater.check().await {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                return UpdateInfo {
+                    available: false,
+                    version: None,
+                    body: None,
+                    error: None,
+                };
+            }
+            Err(e) => {
+                return UpdateInfo {
+                    available: false,
+                    version: None,
+                    body: None,
+                    error: Some(e.to_string()),
+                };
+            }
+        };
+
+        UpdateInfo {
+            available: true,
+            version: Some(update.version.clone()),
+            body: update.body.clone(),
+            error: None,
+        }
+    }
+
     #[tauri::command]
     pub async fn check_and_install_update(app: AppHandle) -> UpdateResult {
         // Token injecté à la compilation (CI) ou variables d'environnement au runtime
@@ -186,6 +259,7 @@ pub fn run() {
             .plugin(tauri_plugin_process::init())
             .invoke_handler(tauri::generate_handler![
             updater_cmd::check_and_install_update,
+            updater_cmd::check_update_with_auth,
             updater_cmd::get_app_versions,
         ]);
     }
