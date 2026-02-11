@@ -53,7 +53,7 @@ jobs:
           NEXT_PUBLIC_UPDATER_TOKEN: ${{ secrets.TAURI_UPDATE_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: "App v__VERSION__"
+          releaseName: "VERSION__"
           releaseBody: "Voir les assets pour télécharger et installer."
           releaseDraft: false
           prerelease: false
