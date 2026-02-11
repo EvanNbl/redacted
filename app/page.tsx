@@ -67,6 +67,13 @@ const SHEET_RANGE =
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
 const useClientApi = isClientSheetsAvailable();
 
+// Log pour debug en production
+if (typeof window !== "undefined") {
+  console.log("[Config] useClientApi:", useClientApi);
+  console.log("[Config] NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY:", 
+    process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY ? "présent" : "absent");
+}
+
 /* ── Filter logic ────────────────────────────────────────── */
 
 function applyFilters(
