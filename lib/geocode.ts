@@ -1,12 +1,14 @@
 /**
  * Géocodage Nominatim (OSM) pour obtenir des coordonnées réelles
  * quand le Sheet n'a pas de colonnes Latitude/Longitude remplies.
- * Respecte la politique d'utilisation (1 req/s, User-Agent).
+ * Respecte la politique d'utilisation : 1 requête à la fois, délai ≥ 1 s entre chaque.
+ * @see https://operations.osmfoundation.org/policies/nominatim/
  */
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const CACHE_KEY = "nominatim-geocode-cache";
-const MIN_DELAY_MS = 1100;
+/** Délai minimum entre deux requêtes (politesse Nominatim, évite blocages). */
+const MIN_DELAY_MS = 1200;
 
 let lastRequestTime = 0;
 
@@ -100,6 +102,7 @@ export type MemberWithCoords = {
 
 /**
  * Enrichit les membres sans coordonnées exactes en géocodant "ville, pays" via Nominatim.
+ * Une seule requête à la fois avec délai MIN_DELAY_MS entre chaque (pas de requêtes simultanées).
  * Retourne une nouvelle liste avec lat/lon mises à jour (et hasExactCoords à true pour les géocodés).
  */
 export async function enrichMembersWithNominatim(
@@ -113,6 +116,7 @@ export async function enrichMembersWithNominatim(
     updated.set(m.id, { ...m });
   }
 
+  // Séquentiel volontaire : respect de la politesse Nominatim (1 req/s, pas de parallélisme)
   for (const m of toEnrich) {
     const coords = await geocodePlace(m.ville, m.pays);
     updated.set(m.id, {

@@ -310,6 +310,8 @@ pub fn run() {
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init())
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_fs::init())
             .invoke_handler(tauri::generate_handler![
             updater_cmd::check_and_install_update,
             updater_cmd::check_update_with_auth,

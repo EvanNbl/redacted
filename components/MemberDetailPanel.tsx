@@ -533,27 +533,40 @@ export function MemberDetailPanel({
 
           {/* Switch Verrouillé (communication uniquement) — seul moyen de déverrouiller */}
           {!isNew && member && contactType === "communication" && (
-            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-5 py-3">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-5 py-3">
               <span className="text-sm font-medium text-zinc-300">
                 Verrouillé
               </span>
-              <Switch
-                checked={isLocked}
-                disabled={saving}
-                onCheckedChange={async (checked) => {
-                  const newLock = checked ? "true" : "false";
-                  const updated: MemberLocation = {
-                    ...member,
-                    rawRow: { ...member.rawRow, Lock: newLock },
-                  };
-                  try {
-                    await Promise.resolve(onSave(updated));
-                  } catch {
-                    /* saveError affiché par le parent */
-                  }
-                }}
-                className="data-[state=checked]:bg-red-600 data-[state=checked]:opacity-100"
-              />
+              <div className="flex items-center gap-2">
+                {saving && (
+                  <span className="text-[11px] text-zinc-500 flex items-center gap-1.5">
+                    <span className="size-3.5 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+                    Enregistrement…
+                  </span>
+                )}
+                {saveError && (
+                  <span className="text-[11px] text-red-400" title={saveError}>
+                    Erreur
+                  </span>
+                )}
+                <Switch
+                  checked={isLocked}
+                  disabled={saving}
+                  onCheckedChange={async (checked) => {
+                    const newLock = checked ? "true" : "false";
+                    const updated: MemberLocation = {
+                      ...member,
+                      rawRow: { ...member.rawRow, Lock: newLock },
+                    };
+                    try {
+                      await Promise.resolve(onSave(updated));
+                    } catch {
+                      /* saveError affiché par le parent */
+                    }
+                  }}
+                  className="data-[state=checked]:bg-red-600 data-[state=checked]:opacity-100"
+                />
+              </div>
             </div>
           )}
 

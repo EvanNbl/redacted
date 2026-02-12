@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { parseMembersFromTable, isMemberLocked, getMemberDisplayName } from "@/lib/member-locations";
 import { enrichMembersWithNominatim } from "@/lib/geocode";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
@@ -63,6 +64,70 @@ interface Filters {
 
 const emptyFilters: Filters = { pays: [], nda: "", referents: [], langues: [] };
 
+export type SortOption = "name" | "pays" | "nda" | "date" | "recent";
+
+const SIDEBAR_ROW_HEIGHT = 52;
+const SIDEBAR_SECTION_HEIGHT = 28;
+const VIRTUALIZE_THRESHOLD = 100;
+
+type SidebarRow =
+  | { kind: "section"; id: string; label: string; count: number }
+  | { kind: "member"; member: MemberLocation; section: "actif" | "refus" };
+
+/** Valeur de tri "date ajout" depuis rawRow (colonnes courantes). */
+function getMemberDateAdded(m: MemberLocation): number {
+  const raw =
+    m.rawRow["Date ajout"] ??
+    m.rawRow["Date d'ajout"] ??
+    m.rawRow["Date"] ??
+    "";
+  if (!raw.trim()) return 0;
+  const d = new Date(raw.trim());
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+/** Index de ligne (sheet-N) pour tri "récent en premier". */
+function getMemberRowIndex(m: MemberLocation): number {
+  const match = m.id.match(/^sheet-(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function sortMembersList(
+  list: MemberLocation[],
+  sortBy: SortOption,
+  contactType: ContactType
+): MemberLocation[] {
+  if (list.length === 0) return list;
+  const locale = "fr";
+  const cmp = (a: MemberLocation, b: MemberLocation): number => {
+    switch (sortBy) {
+      case "name":
+        return (a.pseudo ?? "").localeCompare(b.pseudo ?? "", locale);
+      case "pays":
+        return (a.pays ?? "").localeCompare(b.pays ?? "", locale);
+      case "nda": {
+        const ndaA = (a.rawRow["NDA Signée"] ?? a.rawRow["NDA Signee"] ?? "").trim().toLowerCase();
+        const ndaB = (b.rawRow["NDA Signée"] ?? b.rawRow["NDA Signee"] ?? "").trim().toLowerCase();
+        if (ndaA === ndaB) return 0;
+        return ndaA === "oui" ? 1 : ndaB === "oui" ? -1 : 0;
+      }
+      case "date": {
+        const tA = getMemberDateAdded(a);
+        const tB = getMemberDateAdded(b);
+        return tA - tB;
+      }
+      case "recent": {
+        const iA = getMemberRowIndex(a);
+        const iB = getMemberRowIndex(b);
+        return iB - iA; // plus récent (index plus grand) en premier
+      }
+      default:
+        return 0;
+    }
+  };
+  return [...list].sort(cmp);
+}
+
 /* ── Config ──────────────────────────────────────────────── */
 
 const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
@@ -72,6 +137,7 @@ const SHEET_RANGE_COM =
   process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000";
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
 const useClientApi = isClientSheetsAvailable();
+const SHEET_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
 
 type ContactType = "communication" | "commercial";
 
@@ -186,6 +252,7 @@ export default function Home() {
   // Filters
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>("name");
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -198,64 +265,98 @@ export default function Home() {
     }
   }, []);
 
-  /* ── Data loading ─────────────────────────────────────── */
+  /* ── Cache sheet (1–2 min) ────────────────────────────── */
+  const sheetCacheRef = useRef<{
+    contactType: ContactType;
+    data: ContactsTable;
+    members: MemberLocation[];
+    fetchedAt: number;
+  } | null>(null);
 
-  const loadFromSheet = useCallback(async () => {
-    if (!SHEET_ID || !SHEET_API_KEY) {
-      setError(
-        "Configuration Google Sheets manquante. Vérifiez les variables d'environnement."
-      );
-      setLoading(false);
-      return [];
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const range = contactType === "commercial" ? SHEET_RANGE_COM : SHEET_RANGE;
-      const params = new URLSearchParams({ key: SHEET_API_KEY });
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
-        range
-      )}?${params.toString()}`;
-
-      const res = await fetch(url);
-
-      if (!res.ok) {
-        const text = await res.text();
-        if (res.status === 403) {
-          setError(
-            "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé. 3) La clé API est correcte."
-          );
-          return;
-        }
-        throw new Error(
-          `Erreur API Google Sheets (${res.status}): ${text}`
+  const loadFromSheet = useCallback(
+    async (forceRefresh = false): Promise<MemberLocation[]> => {
+      if (!SHEET_ID || !SHEET_API_KEY) {
+        setError(
+          "Configuration Google Sheets manquante. Vérifiez les variables d'environnement."
         );
-      }
-
-      const json: { values?: string[][] } = await res.json();
-      const values = json.values ?? [];
-
-      if (values.length === 0) {
-        setData({ headers: [], rows: [] });
-        setMembers([]);
+        setLoading(false);
         return [];
       }
 
-      const [headers, ...rows] = values;
-      const parsed = parseMembersFromTable(headers, rows, contactType);
-      setData({ headers, rows });
-      setMembers(parsed);
-      return parsed;
-    } catch (e) {
-      console.error(e);
-      setError("Impossible de charger les contacts depuis Google Sheets.");
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [contactType]);
+      const cache = sheetCacheRef.current;
+      const now = Date.now();
+      const useCache =
+        !forceRefresh &&
+        cache &&
+        cache.contactType === contactType &&
+        now - cache.fetchedAt < SHEET_CACHE_TTL_MS;
+
+      if (useCache && cache) {
+        setData(cache.data);
+        setMembers(cache.members);
+        setError(null);
+        setLoading(false);
+        return cache.members;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const range = contactType === "commercial" ? SHEET_RANGE_COM : SHEET_RANGE;
+        const params = new URLSearchParams({ key: SHEET_API_KEY });
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
+          range
+        )}?${params.toString()}`;
+
+        const res = await fetch(url);
+
+        if (!res.ok) {
+          const text = await res.text();
+          if (res.status === 403) {
+            setError(
+              "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé. 3) La clé API est correcte."
+            );
+            return [];
+          }
+          throw new Error(
+            `Erreur API Google Sheets (${res.status}): ${text}`
+          );
+        }
+
+        const json: { values?: string[][] } = await res.json();
+        const values = json.values ?? [];
+
+        if (values.length === 0) {
+          const empty = { headers: [] as string[], rows: [] as string[][] };
+          setData(empty);
+          setMembers([]);
+          sheetCacheRef.current = { contactType, data: empty, members: [], fetchedAt: Date.now() };
+          return [];
+        }
+
+        const [headers, ...rows] = values;
+        const parsed = parseMembersFromTable(headers, rows, contactType);
+        const table = { headers, rows };
+        setData(table);
+        setMembers(parsed);
+        sheetCacheRef.current = { contactType, data: table, members: parsed, fetchedAt: Date.now() };
+        return parsed;
+      } catch (e) {
+        console.error(e);
+        setError("Impossible de charger les contacts depuis Google Sheets.");
+        return [];
+      } finally {
+        setLoading(false);
+      }
+    },
+    [contactType]
+  );
+
+  /** Force le rechargement en ignorant le cache. */
+  const refreshFromSheet = useCallback(() => {
+    return loadFromSheet(true);
+  }, [loadFromSheet]);
 
   useEffect(() => {
     void loadFromSheet();
@@ -305,6 +406,52 @@ export default function Home() {
     const refus = filteredMembers.filter((m) => isMemberLocked(m));
     return { membersActifs: actifs, membersRefus: refus };
   }, [contactType, filteredMembers]);
+
+  /** Listes triées pour la sidebar. */
+  const { sortedActifs, sortedRefus, sortedCommercial } = useMemo(() => {
+    return {
+      sortedActifs: sortMembersList(membersActifs, sortBy, contactType),
+      sortedRefus: sortMembersList(membersRefus, sortBy, contactType),
+      sortedCommercial: sortMembersList(
+        contactType === "commercial" ? filteredMembers : [],
+        sortBy,
+        contactType
+      ),
+    };
+  }, [membersActifs, membersRefus, filteredMembers, contactType, sortBy]);
+
+  /** Liste plate pour virtualisation (sections + membres). */
+  const flatSidebarRows = useMemo((): SidebarRow[] => {
+    if (contactType === "communication") {
+      const rows: SidebarRow[] = [];
+      if (sortedActifs.length > 0) {
+        rows.push({ kind: "section", id: "contacts", label: "Contacts", count: sortedActifs.length });
+        sortedActifs.forEach((m) => rows.push({ kind: "member", member: m, section: "actif" }));
+      }
+      if (sortedRefus.length > 0) {
+        rows.push({ kind: "section", id: "refus", label: "REFUS", count: sortedRefus.length });
+        sortedRefus.forEach((m) => rows.push({ kind: "member", member: m, section: "refus" }));
+      }
+      return rows;
+    }
+    const rows: SidebarRow[] = [];
+    if (sortedCommercial.length > 0) {
+      rows.push({ kind: "section", id: "contacts", label: "Contacts", count: sortedCommercial.length });
+      sortedCommercial.forEach((m) => rows.push({ kind: "member", member: m, section: "actif" }));
+    }
+    return rows;
+  }, [contactType, sortedActifs, sortedRefus, sortedCommercial]);
+
+  const sidebarListRef = useRef<HTMLDivElement>(null);
+  const useVirtualizedList = flatSidebarRows.length >= VIRTUALIZE_THRESHOLD;
+  const virtualizer = useVirtualizer({
+    count: flatSidebarRows.length,
+    getScrollElement: () => sidebarListRef.current,
+    estimateSize: (index) =>
+      flatSidebarRows[index]?.kind === "section" ? SIDEBAR_SECTION_HEIGHT : SIDEBAR_ROW_HEIGHT,
+    overscan: 8,
+    enabled: useVirtualizedList,
+  });
 
   const uniqueCountries = useMemo(
     () => uniqueValues(members, (m) => m.pays),
@@ -558,6 +705,69 @@ export default function Home() {
     setSearchQuery("");
   }, []);
 
+  /** Exporte la liste filtrée en CSV ; demande toujours où enregistrer (Tauri = dialogue natif, navigateur = showSaveFilePicker ou téléchargement). */
+  const handleExportCsv = useCallback(async () => {
+    if (!data?.headers?.length || filteredMembers.length === 0) return;
+    const headers = data.headers;
+    const rows = filteredMembers.map((m) =>
+      headers.map((h) => {
+        const v = m.rawRow[h.trim()] ?? "";
+        const escaped = /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+        return escaped;
+      }).join(",")
+    );
+    const csv = [headers.join(","), ...rows].join("\r\n");
+    const suggestedName = `contacts_${contactType}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const contentWithBom = "\uFEFF" + csv;
+
+    // App Tauri : dialogue natif "Enregistrer sous" (toujours demander où enregistrer)
+    if (isTauri) {
+      try {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const path = await save({
+          defaultPath: suggestedName,
+          filters: [{ name: "Fichier CSV", extensions: ["csv"] }],
+        });
+        if (path) {
+          const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+          await writeTextFile(path, contentWithBom);
+        }
+      } catch {
+        // Annulé par l'utilisateur ou erreur d'écriture
+      }
+      return;
+    }
+
+    // Navigateur : "Enregistrer sous" si l'API est disponible (Chrome, Edge)
+    if (typeof window !== "undefined" && "showSaveFilePicker" in window) {
+      try {
+        const handle = await (window as Window & { showSaveFilePicker: (o?: { suggestedName?: string; types?: { description: string; accept: Record<string, string[]> }[] }) => Promise<FileSystemFileHandle> })
+          .showSaveFilePicker({
+            suggestedName,
+            types: [
+              { description: "Fichier CSV", accept: { "text/csv": [".csv"] } },
+              { description: "Tous les fichiers", accept: { "application/octet-stream": [".*"] } },
+            ],
+          });
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([contentWithBom], { type: "text/csv;charset=utf-8" }));
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+      }
+    }
+
+    // Fallback navigateur : téléchargement vers le dossier par défaut
+    const blob = new Blob([contentWithBom], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = suggestedName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [data, filteredMembers, contactType, isTauri]);
+
   const handleLoadingFinished = useCallback(() => {
     setFirstLoad(false);
   }, []);
@@ -652,6 +862,21 @@ export default function Home() {
             </div>
           )}
 
+          {/* Rafraîchir (visible) */}
+          {showMap && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void refreshFromSheet()}
+              disabled={loading}
+              className="h-8 px-2.5 text-xs text-zinc-400 hover:text-white"
+              title="Rafraîchir les données du tableur"
+            >
+              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline ml-1">Rafraîchir</span>
+            </Button>
+          )}
+
           {/* Filter toggle */}
           <Button
             variant="ghost"
@@ -713,7 +938,7 @@ export default function Home() {
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
-                onClick={loadFromSheet}
+                onClick={() => void refreshFromSheet()}
                 disabled={loading}
                 className="focus:bg-violet-600/20 focus:text-violet-100"
               >
@@ -722,6 +947,15 @@ export default function Home() {
                 />
                 {loading ? "Chargement…" : "Rafraîchir les données"}
               </DropdownMenuItem>
+              {showMap && filteredMembers.length > 0 && (
+                <DropdownMenuItem
+                  onClick={handleExportCsv}
+                  className="focus:bg-violet-600/20 focus:text-violet-100"
+                >
+                  <Download className="size-4" />
+                  Exporter en CSV
+                </DropdownMenuItem>
+              )}
               {isTauri && (
                 <DropdownMenuItem
                   onClick={() =>
@@ -850,145 +1084,247 @@ export default function Home() {
           }`}
         >
           <div className="flex h-full w-64 flex-col">
-            {/* Contact list header */}
-            <div className="flex items-center justify-between border-b border-white/[0.04] px-3 py-2">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                Contacts
-              </span>
-              <span className="rounded-md bg-violet-600/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-400">
-                {filteredMembers.length}
-              </span>
+            {/* Contact list header + tri */}
+            <div className="border-b border-white/[0.04] px-3 py-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                  Contacts
+                </span>
+                <span className="rounded-md bg-violet-600/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-400">
+                  {filteredMembers.length}
+                </span>
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="w-full h-7 rounded border border-white/10 bg-white/5 px-2 text-[11px] text-zinc-300 focus:border-violet-500/50 focus:outline-none [&>option]:bg-zinc-900"
+              >
+                <option value="name">Tri : Nom</option>
+                <option value="pays">Tri : Pays</option>
+                <option value="nda">Tri : NDA</option>
+                <option value="date">Tri : Date ajout</option>
+                <option value="recent">Récent en premier</option>
+              </select>
             </div>
 
-            {/* Contact list : Communication = section Contacts + section REFUS ; Commercial = liste unique */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Contact list : virtualisée si 100+ contacts, sinon liste classique */}
+            <div ref={sidebarListRef} className="flex-1 overflow-y-auto">
               {filteredMembers.length === 0 && !loading && (
                 <div className="px-3 py-8 text-center text-xs text-zinc-600">
                   Aucun contact trouvé
                 </div>
               )}
-              {contactType === "communication" && (
+              {filteredMembers.length > 0 && useVirtualizedList && (
+                <div
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    position: "relative",
+                    width: "100%",
+                  }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = flatSidebarRows[virtualRow.index];
+                    if (!row) return null;
+                    if (row.kind === "section") {
+                      const isRefus = row.label === "REFUS";
+                      return (
+                        <div
+                          key={row.id}
+                          className="border-b border-white/[0.04] px-2 pt-2 flex items-center gap-1.5"
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <span className={`text-[10px] font-semibold uppercase tracking-wider ${isRefus ? "text-red-400/90" : "text-zinc-500"}`}>
+                            {row.label}
+                          </span>
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] ${isRefus ? "bg-red-500/20 text-red-400" : "bg-violet-600/20 text-violet-400"}`}>
+                            {row.count}
+                          </span>
+                        </div>
+                      );
+                    }
+                    const { member: m, section } = row;
+                    const isRefus = section === "refus";
+                    const displayName = contactType === "commercial" ? getMemberDisplayName(m, "commercial") : m.pseudo;
+                    const ndaOui = ((m.rawRow["NDA Signée"] ?? m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui");
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => handleMemberClick(m)}
+                        className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                          selectedMember?.id === m.id
+                            ? isRefus ? "bg-red-600/10 border-l-2 border-l-red-500" : "bg-violet-600/10 border-l-2 border-l-violet-500"
+                            : ""
+                        }`}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${isRefus ? "bg-red-600/20 text-red-300" : "bg-violet-600/20 text-violet-300"}`}>
+                          {(displayName?.[0] ?? "?").toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                            {displayName}
+                          </p>
+                          <p className="truncate text-[11px] text-zinc-500">
+                            {[m.ville, m.pays].filter(Boolean).join(", ")}
+                          </p>
+                        </div>
+                        {isRefus ? (
+                          <span className="mt-0.5 shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-red-400">
+                            REFUS
+                          </span>
+                        ) : ndaOui ? (
+                          <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                            NDA
+                          </span>
+                        ) : (
+                          <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                            NDA
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {filteredMembers.length > 0 && !useVirtualizedList && (
                 <>
-                  {/* Section Contacts (non verrouillés) */}
-                  {membersActifs.length > 0 && (
-                    <div className="border-b border-white/[0.04] px-2 pt-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                        Contacts
-                      </span>
-                      <span className="ml-1.5 rounded bg-violet-600/20 px-1.5 py-0.5 text-[10px] text-violet-400">
-                        {membersActifs.length}
-                      </span>
-                    </div>
-                  )}
-                  {membersActifs.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => handleMemberClick(m)}
-                      className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
-                        selectedMember?.id === m.id
-                          ? "bg-violet-600/10 border-l-2 border-l-violet-500"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
-                        {(m.pseudo?.[0] ?? "?").toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
-                          {m.pseudo}
-                        </p>
-                        <p className="truncate text-[11px] text-zinc-500">
-                          {[m.ville, m.pays].filter(Boolean).join(", ")}
-                        </p>
-                      </div>
-                      {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
-                        (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
-                        <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                          NDA
-                        </span>
-                      ) : (
-                        <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                          NDA
-                        </span>
+                  {contactType === "communication" && (
+                    <>
+                      {sortedActifs.length > 0 && (
+                        <div className="border-b border-white/[0.04] px-2 pt-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                            Contacts
+                          </span>
+                          <span className="ml-1.5 rounded bg-violet-600/20 px-1.5 py-0.5 text-[10px] text-violet-400">
+                            {sortedActifs.length}
+                          </span>
+                        </div>
                       )}
-                    </button>
-                  ))}
-                  {/* Section REFUS (Lock = true) */}
-                  {membersRefus.length > 0 && (
-                    <div className="border-b border-white/[0.04] px-2 pt-3">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400/90">
-                        REFUS
-                      </span>
-                      <span className="ml-1.5 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
-                        {membersRefus.length}
-                      </span>
-                    </div>
+                      {sortedActifs.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => handleMemberClick(m)}
+                          className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                            selectedMember?.id === m.id
+                              ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                            {(m.pseudo?.[0] ?? "?").toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                              {m.pseudo}
+                            </p>
+                            <p className="truncate text-[11px] text-zinc-500">
+                              {[m.ville, m.pays].filter(Boolean).join(", ")}
+                            </p>
+                          </div>
+                          {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
+                            (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
+                            <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                              NDA
+                            </span>
+                          ) : (
+                            <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                              NDA
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                      {sortedRefus.length > 0 && (
+                        <div className="border-b border-white/[0.04] px-2 pt-3">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400/90">
+                            REFUS
+                          </span>
+                          <span className="ml-1.5 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
+                            {sortedRefus.length}
+                          </span>
+                        </div>
+                      )}
+                      {sortedRefus.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => handleMemberClick(m)}
+                          className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                            selectedMember?.id === m.id
+                              ? "bg-red-600/10 border-l-2 border-l-red-500"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-600/20 text-xs font-bold text-red-300">
+                            {(m.pseudo?.[0] ?? "?").toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                              {m.pseudo}
+                            </p>
+                            <p className="truncate text-[11px] text-zinc-500">
+                              {[m.ville, m.pays].filter(Boolean).join(", ")}
+                            </p>
+                          </div>
+                          <span className="mt-0.5 shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-red-400">
+                            REFUS
+                          </span>
+                        </button>
+                      ))}
+                    </>
                   )}
-                  {membersRefus.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => handleMemberClick(m)}
-                      className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
-                        selectedMember?.id === m.id
-                          ? "bg-red-600/10 border-l-2 border-l-red-500"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-600/20 text-xs font-bold text-red-300">
-                        {(m.pseudo?.[0] ?? "?").toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
-                          {m.pseudo}
-                        </p>
-                        <p className="truncate text-[11px] text-zinc-500">
-                          {[m.ville, m.pays].filter(Boolean).join(", ")}
-                        </p>
-                      </div>
-                      <span className="mt-0.5 shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-red-400">
-                        REFUS
-                      </span>
-                    </button>
-                  ))}
+                  {contactType === "commercial" &&
+                    sortedCommercial.map((m) => {
+                      const displayName = getMemberDisplayName(m, "commercial");
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => handleMemberClick(m)}
+                          className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                            selectedMember?.id === m.id
+                              ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                            {(displayName?.[0] ?? "?").toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                              {displayName}
+                            </p>
+                            <p className="truncate text-[11px] text-zinc-500">
+                              {[m.ville, m.pays].filter(Boolean).join(", ")}
+                            </p>
+                          </div>
+                          {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
+                            (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
+                            <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                              NDA
+                            </span>
+                          ) : (
+                            <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                              NDA
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                 </>
               )}
-              {contactType === "commercial" &&
-                filteredMembers.map((m) => {
-                  const displayName = getMemberDisplayName(m, "commercial");
-                  return (
-                  <button
-                    key={m.id}
-                    onClick={() => handleMemberClick(m)}
-                    className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
-                      selectedMember?.id === m.id
-                        ? "bg-violet-600/10 border-l-2 border-l-violet-500"
-                        : ""
-                    }`}
-                  >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
-                      {(displayName?.[0] ?? "?").toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
-                        {displayName}
-                      </p>
-                      <p className="truncate text-[11px] text-zinc-500">
-                        {[m.ville, m.pays].filter(Boolean).join(", ")}
-                      </p>
-                    </div>
-                    {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
-                      (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
-                      <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                        NDA
-                      </span>
-                    ) : (
-                      <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                        NDA
-                      </span>
-                    )}
-                  </button>
-                  );
-                })}
             </div>
 
             {/* Sidebar footer */}
