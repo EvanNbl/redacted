@@ -61,6 +61,7 @@ function getFromRawRow(
 
 const RAW_ROW_KEYS = {
   pseudo: ["Pseudo"],
+  entreprise: ["Entreprise"],
   prenom: ["Prénom", "Prenom"],
   nom: ["Nom"],
   idDiscord: ["ID Discord", "Discord"],
@@ -76,6 +77,7 @@ const RAW_ROW_KEYS = {
 
 const emptyForm = {
   pseudo: "",
+  entreprise: "",
   prenom: "",
   nom: "",
   idDiscord: "",
@@ -134,6 +136,7 @@ export function MemberDetailPanel({
       setForm({
         pseudo:
           member.pseudo || getFromRawRow(raw, [...RAW_ROW_KEYS.pseudo]),
+        entreprise: getFromRawRow(raw, [...RAW_ROW_KEYS.entreprise]),
         prenom: getFromRawRow(raw, [...RAW_ROW_KEYS.prenom]),
         nom: getFromRawRow(raw, [...RAW_ROW_KEYS.nom]),
         idDiscord: getFromRawRow(raw, [...RAW_ROW_KEYS.idDiscord]),
@@ -200,12 +203,13 @@ export function MemberDetailPanel({
     e.preventDefault();
     if (isLocked) return;
 
-    // Validation pour les commerciaux : au moins Prénom ou Nom doit être rempli si pas de pseudo
+    // Validation pour les commerciaux : au moins un des champs identité (Prénom, Nom, Pseudo, Entreprise)
     if (contactType === "commercial") {
       const hasPseudo = form.pseudo.trim().length > 0;
+      const hasEntreprise = form.entreprise.trim().length > 0;
       const hasPrenomOrNom = form.prenom.trim().length > 0 || form.nom.trim().length > 0;
-      if (!hasPseudo && !hasPrenomOrNom) {
-        setCoordsError("Pour les commerciaux, veuillez remplir au moins le Prénom ou le Nom (ou le Pseudo).");
+      if (!hasPseudo && !hasPrenomOrNom && !hasEntreprise) {
+        setCoordsError("Veuillez remplir au moins le Pseudo, le Nom entreprise, ou le Nom/Prénom.");
         return;
       }
     } else {
@@ -265,6 +269,7 @@ export function MemberDetailPanel({
       }
     }
     rawRow["Pseudo"] = finalPseudo;
+    rawRow["Entreprise"] = form.entreprise.trim();
     rawRow["ID Discord"] = form.idDiscord.trim();
     rawRow["Email"] = form.email.trim();
     rawRow["Pays"] = form.pays.trim();
@@ -275,22 +280,28 @@ export function MemberDetailPanel({
     rawRow["Referent"] = form.referent.trim();
     rawRow["Notes"] = form.notes.trim();
     
-    // Sauvegarder les réseaux sociaux
-    RESEAUX_SOCIAUX.forEach((reseau) => {
-      if (reseaux[reseau]?.trim()) {
-        rawRow[reseau] = reseaux[reseau].trim();
-      } else {
-        delete rawRow[reseau];
-      }
-    });
-    // Sauvegarder les "Autre" multiples
-    Object.keys(reseaux).forEach((key) => {
-      if (key.startsWith("Autre ") && reseaux[key]?.trim()) {
-        rawRow[key] = reseaux[key].trim();
-      } else if (key.startsWith("Autre ") && !reseaux[key]?.trim()) {
-        delete rawRow[key];
-      }
-    });
+    // Réseaux sociaux : en communication on les enregistre ; en commercial on les retire du rawRow
+    if (contactType === "commercial") {
+      RESEAUX_SOCIAUX.forEach((reseau) => delete rawRow[reseau]);
+      Object.keys(rawRow).forEach((key) => {
+        if (key.startsWith("Autre ")) delete rawRow[key];
+      });
+    } else {
+      RESEAUX_SOCIAUX.forEach((reseau) => {
+        if (reseaux[reseau]?.trim()) {
+          rawRow[reseau] = reseaux[reseau].trim();
+        } else {
+          delete rawRow[reseau];
+        }
+      });
+      Object.keys(reseaux).forEach((key) => {
+        if (key.startsWith("Autre ") && reseaux[key]?.trim()) {
+          rawRow[key] = reseaux[key].trim();
+        } else if (key.startsWith("Autre ") && !reseaux[key]?.trim()) {
+          delete rawRow[key];
+        }
+      });
+    }
 
     const updated: MemberLocation = {
       id: member?.id ?? `local-${Date.now()}`,
@@ -586,64 +597,122 @@ export function MemberDetailPanel({
                   Identité
                 </legend>
                 {contactType === "commercial" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label htmlFor="panel-nom" className={fieldLabel}>
+                          Nom
+                        </label>
+                        <Input
+                          id="panel-nom"
+                          type="text"
+                          value={form.nom}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, nom: e.target.value }))
+                          }
+                          className={inputClass}
+                          placeholder="Nom"
+                          disabled={isLocked}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="panel-prenom" className={fieldLabel}>
+                          Prénom
+                        </label>
+                        <Input
+                          id="panel-prenom"
+                          type="text"
+                          value={form.prenom}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, prenom: e.target.value }))
+                          }
+                          className={inputClass}
+                          placeholder="Prénom"
+                          disabled={isLocked}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label htmlFor="panel-pseudo" className={fieldLabel}>
+                          Pseudo
+                        </label>
+                        <Input
+                          id="panel-pseudo"
+                          type="text"
+                          value={form.pseudo}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, pseudo: e.target.value }))
+                          }
+                          className={inputClass}
+                          placeholder="Pseudo"
+                          disabled={isLocked}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="panel-entreprise" className={fieldLabel}>
+                          Nom entreprise
+                        </label>
+                        <Input
+                          id="panel-entreprise"
+                          type="text"
+                          value={form.entreprise}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, entreprise: e.target.value }))
+                          }
+                          className={inputClass}
+                          placeholder="Nom de l'entreprise"
+                          disabled={isLocked}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label htmlFor="panel-nom" className={fieldLabel}>
-                        Nom
+                      <label htmlFor="panel-pseudo" className={fieldLabel}>
+                        Pseudo
                       </label>
                       <Input
-                        id="panel-nom"
+                        id="panel-pseudo"
                         type="text"
-                        value={form.nom}
+                        value={form.pseudo}
                         onChange={(e) =>
-                          setForm((f) => ({ ...f, nom: e.target.value }))
+                          setForm((f) => ({ ...f, pseudo: e.target.value }))
                         }
                         className={inputClass}
-                        placeholder="Nom"
+                        placeholder="Nom ou pseudo"
                         disabled={isLocked}
                       />
                     </div>
                     <div className="space-y-1">
-                      <label htmlFor="panel-prenom" className={fieldLabel}>
-                        Prénom
+                      <label htmlFor="panel-idDiscord" className={fieldLabel}>
+                        ID Discord
                       </label>
                       <Input
-                        id="panel-prenom"
+                        id="panel-idDiscord"
                         type="text"
-                        value={form.prenom}
+                        value={form.idDiscord}
                         onChange={(e) =>
-                          setForm((f) => ({ ...f, prenom: e.target.value }))
+                          setForm((f) => ({
+                            ...f,
+                            idDiscord: e.target.value,
+                          }))
                         }
-                        className={inputClass}
-                        placeholder="Prénom"
                         disabled={isLocked}
+                        className={inputClass}
+                        placeholder="Optionnel"
                       />
                     </div>
                   </div>
-                ) : null}
-                <div className="grid grid-cols-2 gap-3">
+                )}
+                {contactType === "commercial" && (
                   <div className="space-y-1">
-                    <label htmlFor="panel-pseudo" className={fieldLabel}>
-                      {contactType === "commercial" ? "Pseudo / Entreprise" : "Pseudo"}
-                    </label>
-                    <Input
-                      id="panel-pseudo"
-                      type="text"
-                      value={form.pseudo}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, pseudo: e.target.value }))
-                      }
-                      className={inputClass}
-                      placeholder={contactType === "commercial" ? "Pseudo ou nom d'entreprise" : "Nom ou pseudo"}
-                      disabled={isLocked}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="panel-idDiscord" className={fieldLabel}>
+                    <label htmlFor="panel-idDiscord-com" className={fieldLabel}>
                       ID Discord
                     </label>
                     <Input
-                      id="panel-idDiscord"
+                      id="panel-idDiscord-com"
                       type="text"
                       value={form.idDiscord}
                       onChange={(e) =>
@@ -657,7 +726,7 @@ export function MemberDetailPanel({
                       placeholder="Optionnel"
                     />
                   </div>
-                </div>
+                )}
                 <div className="space-y-1">
                   <label htmlFor="panel-email" className={fieldLabel}>
                     Email
@@ -875,13 +944,13 @@ export function MemberDetailPanel({
                 </div>
               </fieldset>
 
-              {/* ── Réseaux sociaux ── */}
+              {/* ── Réseaux sociaux (communication uniquement) ── */}
+              {contactType !== "commercial" && (
               <fieldset className="space-y-2.5">
                 <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
                   Réseaux sociaux
                 </legend>
                 
-                {/* Sélecteur multiple de réseaux sociaux */}
                 <div className="space-y-1">
                   <label htmlFor="panel-add-reseau" className={fieldLabel}>
                     Ajouter des réseaux
@@ -1018,6 +1087,7 @@ export function MemberDetailPanel({
                   </div>
                 )}
               </fieldset>
+              )}
 
               {/* Errors */}
               {(coordsError || saveError) && (

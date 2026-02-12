@@ -533,6 +533,7 @@ export default function Home() {
         try {
           const memberData = {
             pseudo: updated.pseudo,
+            entreprise: updated.rawRow["Entreprise"] ?? "",
             prenom: updated.rawRow["Prénom"] ?? "",
             nom: updated.rawRow["Nom"] ?? "",
             idDiscord: updated.rawRow["ID Discord"] ?? "",
@@ -611,6 +612,7 @@ export default function Home() {
       try {
         const memberData = {
           pseudo: newMember.pseudo,
+          entreprise: newMember.rawRow["Entreprise"] ?? "",
           prenom: newMember.rawRow["Prénom"] ?? "",
           nom: newMember.rawRow["Nom"] ?? "",
           idDiscord: newMember.rawRow["ID Discord"] ?? "",

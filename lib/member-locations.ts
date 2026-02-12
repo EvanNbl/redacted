@@ -32,7 +32,7 @@ export function isNdaSigned(m: MemberLocation): boolean {
   return v === "oui";
 }
 
-/** Libellé affiché sur la carte/globe : commercial = "Nom Prénom / Entreprise", communication = pseudo. */
+/** Libellé affiché sur la carte/globe : commercial = "Nom Prénom - Pseudo / Entreprise" (s'adapte aux champs remplis), communication = pseudo. */
 export function getMemberDisplayName(
   m: MemberLocation,
   contactType: "communication" | "commercial"
@@ -40,10 +40,14 @@ export function getMemberDisplayName(
   if (contactType === "commercial") {
     const nom = (m.rawRow["Nom"] ?? "").trim();
     const prenom = (m.rawRow["Prénom"] ?? m.rawRow["Prenom"] ?? "").trim();
-    const entreprise = (m.pseudo ?? "").trim();
+    const pseudo = (m.pseudo ?? "").trim();
+    const entreprise = (m.rawRow["Entreprise"] ?? "").trim();
     const namePart = [nom, prenom].filter(Boolean).join(" ").trim();
-    if (namePart) return entreprise ? `${namePart} / ${entreprise}` : namePart;
-    return entreprise || "?";
+    let out = "";
+    if (namePart) out = namePart;
+    if (pseudo) out = out ? `${out} - ${pseudo}` : pseudo;
+    if (entreprise) out = out ? `${out} / ${entreprise}` : entreprise;
+    return out || "?";
   }
   return m.pseudo?.trim() || "?";
 }
@@ -145,6 +149,7 @@ export function parseMembersFromTable(
 
   const idx = getHeaderIndices(headers);
   const pseudoCol = idx["pseudo"] ?? 0;
+  const entrepriseCol = idx["entreprise"] ?? -1;
   const prenomCol = idx["prénom"] ?? idx["prenom"] ?? -1;
   const nomCol = idx["nom"] ?? -1;
   const paysCol = idx["pays"] ?? -1;
@@ -159,14 +164,16 @@ export function parseMembersFromTable(
     const row = rows[rowIndex];
     let pseudo = (row[pseudoCol] ?? "").trim();
     
-    // Pour les commerciaux, construire le pseudo à partir de Prénom et Nom si disponible
+    // Pour les commerciaux, construire le pseudo à partir de Prénom, Nom ou Entreprise si besoin
     if (contactType === "commercial") {
       const prenom = prenomCol >= 0 ? (row[prenomCol] ?? "").trim() : "";
       const nom = nomCol >= 0 ? (row[nomCol] ?? "").trim() : "";
+      const entreprise = entrepriseCol >= 0 ? (row[entrepriseCol] ?? "").trim() : "";
       if (!pseudo && (prenom || nom)) {
         pseudo = [prenom, nom].filter(Boolean).join(" ").trim();
       }
-      if (!pseudo) continue; // Skip si pas de pseudo/prénom/nom
+      if (!pseudo && entreprise) pseudo = entreprise;
+      if (!pseudo) continue; // Skip si pas de pseudo/prénom/nom/entreprise
     } else {
       if (!pseudo) continue; // Skip si pas de pseudo pour communication
     }

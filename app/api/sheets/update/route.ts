@@ -4,6 +4,7 @@ import { google } from "googleapis";
 /** Nom des colonnes reconnus (minuscules, pour matching). */
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
+  entreprise: ["entreprise"],
   prenom: ["prénom", "prenom"],
   nom: ["nom"],
   idDiscord: ["id discord", "discord"],
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
     const {
       memberId,
       pseudo = "",
+      entreprise = "",
       prenom = "",
       nom = "",
       pays = "",
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
     }: {
       memberId: string;
       pseudo?: string;
+      entreprise?: string;
       prenom?: string;
       nom?: string;
       pays?: string;
@@ -157,6 +160,7 @@ export async function POST(request: Request) {
     const indices = getHeaderIndices(headerRow);
 
     const pseudoCol = findColumnIndex(indices, HEADER_ALIASES.pseudo);
+    const entrepriseCol = findColumnIndex(indices, HEADER_ALIASES.entreprise);
     const prenomCol = findColumnIndex(indices, HEADER_ALIASES.prenom);
     const nomCol = findColumnIndex(indices, HEADER_ALIASES.nom);
     const idDiscordCol = findColumnIndex(indices, HEADER_ALIASES.idDiscord);
@@ -176,6 +180,7 @@ export async function POST(request: Request) {
     while (newRow.length < headerRow.length) newRow.push("");
 
     if (pseudoCol >= 0) newRow[pseudoCol] = String(pseudo ?? "").trim();
+    if (entrepriseCol >= 0) newRow[entrepriseCol] = String(entreprise ?? "").trim();
     if (prenomCol >= 0) newRow[prenomCol] = String(prenom ?? "").trim();
     if (nomCol >= 0) newRow[nomCol] = String(nom ?? "").trim();
     if (idDiscordCol >= 0) newRow[idDiscordCol] = String(idDiscord ?? "").trim();

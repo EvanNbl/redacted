@@ -116,6 +116,7 @@ async function getAccessToken(
 
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
+  entreprise: ["entreprise"],
   prenom: ["prénom", "prenom"],
   nom: ["nom"],
   idDiscord: ["id discord", "discord"],
@@ -156,6 +157,7 @@ export function isClientSheetsAvailable(): boolean {
 
 export interface SheetsMemberData {
   pseudo?: string;
+  entreprise?: string;
   prenom?: string;
   nom?: string;
   idDiscord?: string;
@@ -183,6 +185,7 @@ function buildRow(
 
   const map: Record<string, string | undefined> = {
     pseudo: data.pseudo,
+    entreprise: data.entreprise,
     prenom: data.prenom,
     nom: data.nom,
     idDiscord: data.idDiscord,
