@@ -67,7 +67,7 @@ const emptyFilters: Filters = { pays: [], nda: "", referents: [], langues: [] };
 
 const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000";
+  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000";
 const SHEET_RANGE_COM =
   process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000";
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
@@ -80,6 +80,8 @@ if (typeof window !== "undefined") {
   console.log("[Config] useClientApi:", useClientApi);
   console.log("[Config] NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY:", 
     process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY ? "présent" : "absent");
+  console.log("[Config] SHEET_RANGE:", SHEET_RANGE);
+  console.log("[Config] SHEET_RANGE_COM:", SHEET_RANGE_COM);
 }
 
 /* ── Filter logic ────────────────────────────────────────── */

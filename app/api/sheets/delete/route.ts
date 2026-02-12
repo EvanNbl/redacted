@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
     const rangeA1 = contactType === "commercial"
       ? (process.env.GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
-      : (process.env.GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
+      : (process.env.GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000");
 
     if (!spreadsheetId) {
       return NextResponse.json(
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 
     const sheetRowNum = rowIndex + 2; // rowIndex 0 = ligne 2 dans le sheet (après l'en-tête)
     const match = rangeA1.match(/^([^!]+)!/);
-    const sheetName = match ? match[1].replace(/^'|'$/g, "") : (contactType === "commercial" ? "Commercial" : "Communication");
+    const sheetName = match ? match[1].replace(/^'|'$/g, "") : (contactType === "commercial" ? "Commercial" : "Tableau");
 
     const auth = new google.auth.GoogleAuth({
       credentials,

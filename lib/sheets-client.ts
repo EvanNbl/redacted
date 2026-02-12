@@ -220,13 +220,13 @@ export async function appendRowToSheet(
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
   const rangeA1 = contactType === "commercial"
     ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
-    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
   try {
     const token = await getAccessToken(creds);
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Tableau")).replace(
       /^'|'$/g,
       ""
     );
@@ -284,7 +284,7 @@ export async function updateRowInSheet(
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
   const rangeA1 = contactType === "commercial"
     ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
-    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
@@ -295,7 +295,7 @@ export async function updateRowInSheet(
       return { ok: false, error: "Index de ligne invalide." };
 
     const sheetRowNum = rowIndex + 2;
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Tableau")).replace(
       /^'|'$/g,
       ""
     );
@@ -363,7 +363,7 @@ export async function deleteRowInSheet(
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
   const rangeA1 = contactType === "commercial"
     ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
-    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
@@ -374,7 +374,7 @@ export async function deleteRowInSheet(
       return { ok: false, error: "Index de ligne invalide." };
 
     const sheetRowNum = rowIndex + 2;
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Tableau")).replace(
       /^'|'$/g,
       ""
     );

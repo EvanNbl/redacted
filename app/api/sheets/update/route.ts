@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
     const rangeA1 = contactType === "commercial"
       ? (process.env.GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
-      : (process.env.GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
+      : (process.env.GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000");
 
     if (!spreadsheetId) {
       return NextResponse.json(
