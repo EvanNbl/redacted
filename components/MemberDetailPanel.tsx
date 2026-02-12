@@ -775,6 +775,7 @@ export function MemberDetailPanel({
                       }
                       className={selectClass}
                     >
+                      <option value="">Sélectionner</option>
                       {form.referent &&
                         !REFERENT_OPTIONS.includes(form.referent) && (
                           <option value={form.referent}>{form.referent}</option>
