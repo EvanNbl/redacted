@@ -582,7 +582,7 @@ export function MemberDetailPanel({
                         setCoordsError(null);
                         setGeocodedCoords(null);
                       }}
-                      placeholder="Sélectionner un pays"
+                      placeholder="Sélectionner"
                     />
                   </div>
                   <div className="space-y-1">
