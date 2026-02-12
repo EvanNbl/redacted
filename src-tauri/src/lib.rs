@@ -277,6 +277,8 @@ pub fn run() {
             // Ouvrir les DevTools en production si la variable d'environnement est activée
             #[cfg(desktop)]
             {
+                use tauri::Manager;
+                
                 // Charger les variables d'environnement depuis .env si disponible
                 let _ = dotenvy::dotenv();
                 
