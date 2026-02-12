@@ -12,6 +12,7 @@ import {
   AddressAutocomplete,
   type AddressSuggestion,
 } from "@/components/AddressAutocomplete";
+import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
 
 const PAYS_OPTIONS = ["", ...PAYS_LIST];
 const NDA_OPTIONS = ["", "Oui", "Non"] as const;
@@ -63,7 +64,7 @@ const emptyForm = {
   region: "",
   ville: "",
   langues: "",
-  ndaSignee: "",
+  ndaSignee: "Non",
   referent: "",
   notes: "",
   manualLat: "",
@@ -113,7 +114,7 @@ export function MemberDetailPanel({
         ville:
           member.ville || getFromRawRow(raw, [...RAW_ROW_KEYS.ville]),
         langues: getFromRawRow(raw, [...RAW_ROW_KEYS.langues]),
-        ndaSignee: getFromRawRow(raw, [...RAW_ROW_KEYS.ndaSignee]),
+        ndaSignee: getFromRawRow(raw, [...RAW_ROW_KEYS.ndaSignee]) || "Non",
         referent: getFromRawRow(raw, [...RAW_ROW_KEYS.referent]),
         notes: getFromRawRow(raw, [...RAW_ROW_KEYS.notes]),
         manualLat: "",
@@ -418,18 +419,16 @@ export function MemberDetailPanel({
                     <label htmlFor="panel-langues" className={fieldLabel}>
                       Langue(s)
                     </label>
-                    <Input
+                    <LanguageMultiSelect
                       id="panel-langues"
-                      type="text"
                       value={form.langues}
-                      onChange={(e) =>
+                      onChange={(value) =>
                         setForm((f) => ({
                           ...f,
-                          langues: e.target.value,
+                          langues: value,
                         }))
                       }
-                      className={inputClass}
-                      placeholder="Français, Anglais"
+                      placeholder="Sélectionner"
                     />
                   </div>
                   <div className="space-y-1">
