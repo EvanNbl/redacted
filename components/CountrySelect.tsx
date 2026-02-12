@@ -35,7 +35,7 @@ export function CountrySelect({
   // Inclure aussi la valeur actuelle si elle n'est pas dans la liste (pays personnalisé)
   const allCountries = [
     ...(value && !PAYS_OPTIONS.includes(value) ? [value] : []),
-    ...PAYS_OPTIONS,
+    ...PAYS_OPTIONS.filter((c) => c !== ""), // Exclure les chaînes vides
   ];
   const filteredCountries = allCountries.filter((country) =>
     country.toLowerCase().includes(searchQuery.toLowerCase())
