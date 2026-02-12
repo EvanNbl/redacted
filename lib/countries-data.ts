@@ -208,6 +208,7 @@ export const COUNTRIES_WITH_CAPITALS: CountryEntry[] = [
   { pays: "Yémen", capitale: "Sanaa", lat: 15.3694, lon: 44.191 },
   { pays: "Zambie", capitale: "Lusaka", lat: -15.3875, lon: 28.3228 },
   { pays: "Zimbabwe", capitale: "Harare", lat: -17.8292, lon: 31.0522 },
+  { pays: "Autre", capitale: "Point Nemo", lat: -48.876667, lon: -123.393333 },
 ];
 
 /** Liste ordonnée des noms de pays pour les listes déroulantes. */

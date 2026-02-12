@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import type { MemberLocation } from "@/lib/member-locations";
 import { getCoordsForMember } from "@/lib/member-locations";
-import { Save, UserPlus, X, MapPin, Trash2 } from "lucide-react";
+import { Save, UserPlus, X, MapPin, Trash2, Copy, Mail, ExternalLink, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -13,10 +13,23 @@ import {
   type AddressSuggestion,
 } from "@/components/AddressAutocomplete";
 import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
+import { ReseauMultiSelect } from "@/components/ReseauMultiSelect";
 
 const PAYS_OPTIONS = ["", ...PAYS_LIST];
 const NDA_OPTIONS = ["", "Oui", "Non"] as const;
 const REFERENT_OPTIONS = ["", "Orion", "Nextraker", "Aducine", "Thibani"];
+
+// Réseaux sociaux disponibles
+const RESEAUX_SOCIAUX = [
+  "Twitter",
+  "Instagram",
+  "Tiktok",
+  "Youtube",
+  "Linkedin",
+  "Autre",
+] as const;
+
+type ReseauSocial = (typeof RESEAUX_SOCIAUX)[number];
 
 export interface MemberDetailPanelProps {
   member: MemberLocation | null;
@@ -99,6 +112,8 @@ export function MemberDetailPanel({
     [number, number] | null
   >(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [reseaux, setReseaux] = useState<Record<string, string>>({});
+  const [reseauxSelectionnes, setReseauxSelectionnes] = useState<string[]>([]);
 
   useEffect(() => {
     if (member) {
@@ -120,10 +135,35 @@ export function MemberDetailPanel({
         manualLat: "",
         manualLon: "",
       });
+      
+      // Charger les réseaux sociaux depuis rawRow
+      const reseauxData: Record<string, string> = {};
+      RESEAUX_SOCIAUX.forEach((reseau) => {
+        const value = raw[reseau]?.trim();
+        if (value) {
+          reseauxData[reseau] = value;
+        }
+      });
+      // Charger les "Autre" multiples (Autre 1, Autre 2, etc.)
+      Object.keys(raw).forEach((key) => {
+        if (key.startsWith("Autre ") && raw[key]?.trim()) {
+          reseauxData[key] = raw[key].trim();
+        }
+      });
+      setReseaux(reseauxData);
+      
+      // Initialiser les réseaux sélectionnés avec ceux qui sont déjà présents
+      const reseauxPresents = Object.keys(reseauxData).filter(
+        (key) => RESEAUX_SOCIAUX.includes(key as ReseauSocial)
+      );
+      setReseauxSelectionnes(reseauxPresents);
+      
       setCoordsError(null);
       setGeocodedCoords(null);
     } else {
       setForm(emptyForm);
+      setReseaux({});
+      setReseauxSelectionnes([]);
       setCoordsError(null);
       setGeocodedCoords(null);
     }
@@ -152,17 +192,30 @@ export function MemberDetailPanel({
     // Use geocoded coords from autocomplete if available, otherwise fallback
     let finalCoords = geocodedCoords;
     if (!finalCoords) {
-      const fallback = getCoordsForMember(
-        form.pays.trim(),
-        form.ville.trim()
-      );
-      if (!fallback) {
-        setCoordsError(
-          "Pays ou ville non reconnu. Utilisez la recherche d'adresse pour un placement précis."
-        );
-        return;
+      // Si c'est une modification et que le membre a déjà des coordonnées valides,
+      // et que le pays/ville n'a pas changé, utiliser les coordonnées existantes
+      if (!isNew && member && member.latitude && member.longitude) {
+        const paysUnchanged = member.pays === form.pays.trim();
+        const villeUnchanged = member.ville === form.ville.trim();
+        if (paysUnchanged && villeUnchanged) {
+          finalCoords = [member.latitude, member.longitude];
+        }
       }
-      finalCoords = fallback;
+      
+      // Sinon, essayer de récupérer les coordonnées depuis la base de données
+      if (!finalCoords) {
+        const fallback = getCoordsForMember(
+          form.pays.trim(),
+          form.ville.trim()
+        );
+        if (!fallback) {
+          setCoordsError(
+            "Pays ou ville non reconnu. Utilisez la recherche d'adresse pour un placement précis."
+          );
+          return;
+        }
+        finalCoords = fallback;
+      }
     }
 
     setCoordsError(null);
@@ -178,6 +231,23 @@ export function MemberDetailPanel({
     rawRow["NDA Signée"] = form.ndaSignee.trim();
     rawRow["Referent"] = form.referent.trim();
     rawRow["Notes"] = form.notes.trim();
+    
+    // Sauvegarder les réseaux sociaux
+    RESEAUX_SOCIAUX.forEach((reseau) => {
+      if (reseaux[reseau]?.trim()) {
+        rawRow[reseau] = reseaux[reseau].trim();
+      } else {
+        delete rawRow[reseau];
+      }
+    });
+    // Sauvegarder les "Autre" multiples
+    Object.keys(reseaux).forEach((key) => {
+      if (key.startsWith("Autre ") && reseaux[key]?.trim()) {
+        rawRow[key] = reseaux[key].trim();
+      } else if (key.startsWith("Autre ") && !reseaux[key]?.trim()) {
+        delete rawRow[key];
+      }
+    });
 
     const updated: MemberLocation = {
       id: member?.id ?? `local-${Date.now()}`,
@@ -226,6 +296,122 @@ export function MemberDetailPanel({
 
   const handleDeleteCancel = () => {
     setShowDeleteConfirm(false);
+  };
+
+  const handleAddReseau = (reseau: ReseauSocial) => {
+    if (reseau === "Autre") {
+      // Pour "Autre", trouver le prochain numéro disponible
+      const autresKeys = Object.keys(reseaux).filter((k) => k.startsWith("Autre "));
+      let num = 1;
+      while (reseaux[`Autre ${num}`]) {
+        num++;
+      }
+      setReseaux((prev) => ({ ...prev, [`Autre ${num}`]: "" }));
+    } else {
+      // Pour les autres réseaux, un seul par type
+      if (!reseaux[reseau]) {
+        setReseaux((prev) => ({ ...prev, [reseau]: "" }));
+      }
+    }
+  };
+
+  const handleReseauxSelectionChange = (selected: string[]) => {
+    setReseauxSelectionnes(selected);
+    // Ajouter les nouveaux réseaux sélectionnés qui ne sont pas encore dans reseaux
+    selected.forEach((reseau) => {
+      if (!reseaux[reseau]) {
+        handleAddReseau(reseau as ReseauSocial);
+      }
+    });
+  };
+
+  const handleRemoveReseau = (reseau: string) => {
+    setReseaux((prev) => {
+      const newReseaux = { ...prev };
+      delete newReseaux[reseau];
+      return newReseaux;
+    });
+    // Retirer aussi de la sélection si c'est un réseau standard
+    if (RESEAUX_SOCIAUX.includes(reseau as ReseauSocial)) {
+      setReseauxSelectionnes((prev) => prev.filter((r) => r !== reseau));
+    }
+  };
+
+  const handleReseauChange = (reseau: string, value: string) => {
+    setReseaux((prev) => ({ ...prev, [reseau]: value }));
+  };
+
+  const handleCopyEmail = async () => {
+    if (form.email) {
+      try {
+        await navigator.clipboard.writeText(form.email);
+      } catch (err) {
+        // Fallback pour les navigateurs qui ne supportent pas clipboard API
+        const textArea = document.createElement("textarea");
+        textArea.value = form.email;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+    }
+  };
+
+  const handleOpenGmail = async () => {
+    if (form.email && form.email.trim()) {
+      const email = form.email.trim();
+      // Essayer d'abord le format Gmail avec tous les paramètres nécessaires
+      // Format recommandé par Google : view=cm pour compose, tf=cm pour to field
+      const encodedEmail = encodeURIComponent(email);
+      // Format complet avec tous les paramètres pour forcer l'ouverture de la fenêtre de composition
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&tf=cm&to=${encodedEmail}`;
+      
+      console.log("Opening Gmail URL:", gmailUrl);
+      
+      // Utiliser la commande Tauri pour ouvrir dans le navigateur par défaut
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("open_url", { url: gmailUrl });
+      } catch (error) {
+        console.error("Error opening URL with Tauri:", error);
+        // Fallback pour le navigateur web
+        window.open(gmailUrl, "_blank");
+      }
+    }
+  };
+
+  const getReseauUrl = (reseau: string, value: string): string | null => {
+    if (!value.trim()) return null;
+    
+    const url = value.trim();
+    // Si c'est déjà une URL complète, la retourner telle quelle
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+    
+    // Sinon, construire l'URL selon le réseau
+    const urlMap: Record<string, (val: string) => string> = {
+      Twitter: (val) => `https://twitter.com/${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?twitter\.com\//, "")}`,
+      Instagram: (val) => `https://instagram.com/${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?instagram\.com\//, "")}`,
+      Tiktok: (val) => `https://tiktok.com/@${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?tiktok\.com\/@?/, "")}`,
+      Youtube: (val) => {
+        // Peut être une chaîne ou une URL de chaîne
+        if (val.includes("youtube.com/channel/") || val.includes("youtube.com/c/") || val.includes("youtube.com/@")) {
+          return val.startsWith("http") ? val : `https://${val}`;
+        }
+        return `https://youtube.com/@${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?youtube\.com\//, "")}`;
+      },
+      Linkedin: (val) => `https://linkedin.com/in/${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, "")}`,
+      Twitch: (val) => `https://twitch.tv/${val.replace(/^@/, "").replace(/^https?:\/\/(www\.)?twitch\.tv\//, "")}`,
+    };
+    
+    // Si c'est un "Autre", retourner tel quel (doit être une URL complète)
+    if (reseau.startsWith("Autre ")) {
+      return url;
+    }
+    
+    const builder = urlMap[reseau];
+    return builder ? builder(url) : url;
   };
 
   if (!open) return null;
@@ -313,19 +499,45 @@ export function MemberDetailPanel({
                   <label htmlFor="panel-email" className={fieldLabel}>
                     Email
                   </label>
-                  <Input
-                    id="panel-email"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        email: e.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                    placeholder="exemple@email.com"
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="panel-email"
+                      type="email"
+                      value={form.email}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          email: e.target.value,
+                        }))
+                      }
+                      className={cn(inputClass, "flex-1")}
+                      placeholder="exemple@email.com"
+                    />
+                    {form.email && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCopyEmail}
+                          className="h-8 px-2 text-zinc-400 hover:text-white hover:bg-white/10"
+                          title="Copier l'email"
+                        >
+                          <Copy className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleOpenGmail}
+                          className="h-8 px-2 text-zinc-400 hover:text-white hover:bg-white/10"
+                          title="Ouvrir Gmail"
+                        >
+                          <Mail className="size-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </fieldset>
 
@@ -375,9 +587,9 @@ export function MemberDetailPanel({
                         !PAYS_OPTIONS.includes(form.pays) && (
                           <option value={form.pays}>{form.pays}</option>
                         )}
-                      {PAYS_OPTIONS.map((p) => (
-                        <option key={p || "__vide"} value={p}>
-                          {p || "— Choisir —"}
+                      {PAYS_OPTIONS.filter((p) => p !== "").map((p) => (
+                        <option key={p} value={p}>
+                          {p}
                         </option>
                       ))}
                     </select>
@@ -446,9 +658,9 @@ export function MemberDetailPanel({
                       }
                       className={selectClass}
                     >
-                      {NDA_OPTIONS.map((opt) => (
-                        <option key={opt || "__vide"} value={opt}>
-                          {opt || "—"}
+                      {NDA_OPTIONS.filter((opt) => opt !== "").map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
                         </option>
                       ))}
                     </select>
@@ -472,9 +684,9 @@ export function MemberDetailPanel({
                         !REFERENT_OPTIONS.includes(form.referent) && (
                           <option value={form.referent}>{form.referent}</option>
                         )}
-                      {REFERENT_OPTIONS.map((r) => (
-                        <option key={r || "__vide"} value={r}>
-                          {r || "— Choisir —"}
+                      {REFERENT_OPTIONS.filter((r) => r !== "").map((r) => (
+                        <option key={r} value={r}>
+                          {r}
                         </option>
                       ))}
                     </select>
@@ -499,6 +711,146 @@ export function MemberDetailPanel({
                     placeholder="Optionnel"
                   />
                 </div>
+              </fieldset>
+
+              {/* ── Réseaux sociaux ── */}
+              <fieldset className="space-y-2.5">
+                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
+                  Réseaux sociaux
+                </legend>
+                
+                {/* Sélecteur multiple de réseaux sociaux */}
+                <div className="space-y-1">
+                  <label htmlFor="panel-add-reseau" className={fieldLabel}>
+                    Ajouter des réseaux
+                  </label>
+                  <ReseauMultiSelect
+                    id="panel-add-reseau"
+                    selected={reseauxSelectionnes}
+                    onChange={handleReseauxSelectionChange}
+                    placeholder="Sélectionner des réseaux sociaux"
+                  />
+                </div>
+
+                {/* Inputs pour les réseaux sélectionnés */}
+                {Object.entries(reseaux)
+                  .sort(([a], [b]) => {
+                    // Trier : réseaux standards d'abord, puis "Autre" par numéro
+                    if (a.startsWith("Autre ") && b.startsWith("Autre ")) {
+                      const numA = parseInt(a.replace("Autre ", "")) || 0;
+                      const numB = parseInt(b.replace("Autre ", "")) || 0;
+                      return numA - numB;
+                    }
+                    if (a.startsWith("Autre ")) return 1;
+                    if (b.startsWith("Autre ")) return -1;
+                    return a.localeCompare(b);
+                  })
+                  .map(([reseau, value]) => (
+                    <div key={reseau} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label
+                          htmlFor={`panel-reseau-${reseau}`}
+                          className={fieldLabel}
+                        >
+                          {reseau}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveReseau(reseau)}
+                          className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          id={`panel-reseau-${reseau}`}
+                          type="text"
+                          value={value}
+                          onChange={(e) =>
+                            handleReseauChange(reseau, e.target.value)
+                          }
+                          className={cn(inputClass, "flex-1")}
+                          placeholder={
+                            reseau.startsWith("Autre ")
+                              ? "URL complète (ex: https://...)"
+                              : `URL ou identifiant ${reseau}`
+                          }
+                        />
+                        {getReseauUrl(reseau, value) && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              const url = getReseauUrl(reseau, value);
+                              if (url) {
+                                // Utiliser la commande Tauri pour ouvrir dans le navigateur par défaut
+                                try {
+                                  const { invoke } = await import("@tauri-apps/api/core");
+                                  await invoke("open_url", { url });
+                                } catch {
+                                  // Fallback pour le navigateur web
+                                  window.open(url, "_blank");
+                                }
+                              }
+                            }}
+                            className="h-8 px-2 text-zinc-400 hover:text-white hover:bg-white/10"
+                            title="Ouvrir le lien"
+                          >
+                            <ExternalLink className="size-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                {/* Affichage des liens directs */}
+                {Object.keys(reseaux).length > 0 && (
+                  <div className="mt-3 space-y-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      Liens directs
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(reseaux)
+                        .filter(([_, value]) => value.trim())
+                        .sort(([a], [b]) => {
+                          // Trier : réseaux standards d'abord, puis "Autre" par numéro
+                          if (a.startsWith("Autre ") && b.startsWith("Autre ")) {
+                            const numA = parseInt(a.replace("Autre ", "")) || 0;
+                            const numB = parseInt(b.replace("Autre ", "")) || 0;
+                            return numA - numB;
+                          }
+                          if (a.startsWith("Autre ")) return 1;
+                          if (b.startsWith("Autre ")) return -1;
+                          return a.localeCompare(b);
+                        })
+                        .map(([reseau, value]) => {
+                          const url = getReseauUrl(reseau, value);
+                          return url ? (
+                            <button
+                              key={reseau}
+                              type="button"
+                              onClick={async () => {
+                                // Utiliser la commande Tauri pour ouvrir dans le navigateur par défaut
+                                try {
+                                  const { invoke } = await import("@tauri-apps/api/core");
+                                  await invoke("open_url", { url });
+                                } catch {
+                                  // Fallback pour le navigateur web
+                                  window.open(url, "_blank");
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600/20 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-600/30 transition-colors cursor-pointer"
+                            >
+                              {reseau}
+                              <ExternalLink className="size-3" />
+                            </button>
+                          ) : null;
+                        })}
+                    </div>
+                  </div>
+                )}
               </fieldset>
 
               {/* Errors */}

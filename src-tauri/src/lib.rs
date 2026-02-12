@@ -266,6 +266,41 @@ mod updater_cmd {
     }
 }
 
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        let open_cmd = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        Command::new(open_cmd)
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // Sur Windows, utiliser 'start' avec le protocole directement pour mailto:
+        // ou explorer.exe pour les URLs HTTP
+        if url.starts_with("mailto:") {
+            Command::new("cmd")
+                .args(["/C", "start", &url])
+                .spawn()
+                .map_err(|e| format!("Failed to open mailto: {}", e))?;
+        } else {
+            Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .spawn()
+                .map_err(|e| format!("Failed to open URL: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -279,6 +314,7 @@ pub fn run() {
             updater_cmd::check_and_install_update,
             updater_cmd::check_update_with_auth,
             updater_cmd::get_app_versions,
+            open_url,
         ]);
     }
 
