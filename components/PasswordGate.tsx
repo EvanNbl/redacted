@@ -15,6 +15,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isChecking, setIsChecking] = useState(true);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     // Vérifier si l'utilisateur est déjà authentifié dans cette session
@@ -25,30 +26,58 @@ export function PasswordGate({ children }: PasswordGateProps) {
     setIsChecking(false);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    const correctPassword = process.env.NEXT_PUBLIC_APP_PASSWORD;
-    
-    // Vérifier si la variable est définie et non vide
-    if (!correctPassword || correctPassword.trim() === "") {
-      if (process.env.NODE_ENV === "development") {
-        console.error("[PasswordGate] NEXT_PUBLIC_APP_PASSWORD n'est pas définie ou est vide");
-        setError("Configuration manquante. NEXT_PUBLIC_APP_PASSWORD n'est pas définie.");
-      } else {
-        setError("Configuration manquante. Veuillez contacter l'administrateur.");
-      }
+    if (!password.trim()) {
+      setError("Veuillez entrer le mot de passe");
       return;
     }
 
-    if (password === correctPassword) {
-      sessionStorage.setItem("app_authenticated", "true");
-      setIsAuthenticated(true);
-      setPassword("");
-    } else {
-      setError("Mot de passe incorrect");
-      setPassword("");
+    setChecking(true);
+    const pwd = password.trim();
+    try {
+      // 1) Essayer la route API (quand un serveur Next est dispo)
+      let ok = false;
+      try {
+        const res = await fetch("/api/auth/check-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pwd }),
+        });
+        const data = await res.json().catch(() => ({}));
+        ok = res.ok && data.ok === true;
+      } catch {
+        // 2) Fallback build statique / Tauri : lire le mot de passe depuis le sheet
+        const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
+        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
+        const range = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS ?? "MDP!A1:B2";
+        if (sheetId && apiKey && range) {
+          const params = new URLSearchParams({ key: apiKey });
+          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?${params.toString()}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const json = await res.json();
+            const values = json.values ?? [];
+            const stored = (values[0]?.[0] ?? "").toString().trim();
+            ok = stored.length > 0 && pwd === stored;
+          }
+        }
+      }
+
+      if (ok) {
+        sessionStorage.setItem("app_authenticated", "true");
+        setIsAuthenticated(true);
+        setPassword("");
+      } else {
+        setError("Mot de passe incorrect");
+        setPassword("");
+      }
+    } catch {
+      setError("Erreur de connexion. Réessayez.");
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -124,9 +153,10 @@ export function PasswordGate({ children }: PasswordGateProps) {
 
             <Button
               type="submit"
+              disabled={checking}
               className="w-full bg-violet-600 text-white hover:bg-violet-500 h-11"
             >
-              Se connecter
+              {checking ? "Vérification…" : "Se connecter"}
             </Button>
           </form>
         </div>

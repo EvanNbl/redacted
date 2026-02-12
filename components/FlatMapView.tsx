@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import type { MemberLocation } from "@/lib/member-locations";
+import { isMemberLocked, isNdaSigned, getMemberDisplayName } from "@/lib/member-locations";
 import { getISO3 } from "@/lib/country-iso-map";
 import * as topojson from "topojson-client";
 import type { Topology, GeometryCollection } from "topojson-specification";
@@ -48,10 +49,20 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Crée un pin avec le nom complet du membre (pas une seule lettre). */
-function createNamePin(member: MemberLocation): L.DivIcon {
-  const name = escapeHtml(member.pseudo?.trim() || "?");
-  const html = `<div class="name-pin"><span class="name-pin-dot"></span><span class="name-pin-label">${name}</span></div>`;
+/** Crée un pin : Lock → gris, NDA signée → vert, sinon violet. */
+function createNamePin(member: MemberLocation, contactType: "communication" | "commercial"): L.DivIcon {
+  const name = escapeHtml(getMemberDisplayName(member, contactType));
+  const locked = isMemberLocked(member);
+  const ndaSigned = isNdaSigned(member);
+  const lockedClass = locked ? " name-pin--locked" : "";
+  const ndaClass = !locked && ndaSigned ? " name-pin--nda" : "";
+  let dotStyle = "";
+  if (locked) {
+    dotStyle = "background:radial-gradient(circle at 35% 35%, #a1a1aa, #71717a 60%, #52525b);box-shadow:0 0 8px rgba(113,113,122,0.6),0 0 0 2px rgba(113,113,122,0.25);";
+  } else if (ndaSigned) {
+    dotStyle = "background:radial-gradient(circle at 35% 35%, #86efac, #22c55e 60%, #16a34a);box-shadow:0 0 8px rgba(34,197,94,0.6),0 0 0 2px rgba(34,197,94,0.25);";
+  }
+  const html = `<div class="name-pin${lockedClass}${ndaClass}"><span class="name-pin-dot"${dotStyle ? ` style="${dotStyle}"` : ""}></span><span class="name-pin-label">${name}</span></div>`;
   return L.divIcon({
     html,
     className: "leaflet-name-pin-custom",
@@ -148,6 +159,7 @@ export interface FlatMapViewProps {
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
   focusMemberId?: string | null;
+  contactType?: "communication" | "commercial";
 }
 
 export function FlatMapView({
@@ -156,6 +168,7 @@ export function FlatMapView({
   onMemberClick,
   onMapClick,
   focusMemberId,
+  contactType = "communication",
 }: FlatMapViewProps) {
   const [MapComponent, setMapComponent] = useState<React.ComponentType<
     FlatMapViewProps
@@ -182,6 +195,7 @@ export function FlatMapView({
       onMemberClick={onMemberClick}
       onMapClick={onMapClick}
       focusMemberId={focusMemberId}
+      contactType={contactType}
     />
   );
 }
@@ -192,6 +206,7 @@ function FlatMapInner({
   onMemberClick,
   onMapClick,
   focusMemberId,
+  contactType = "communication",
 }: FlatMapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -447,7 +462,7 @@ function FlatMapInner({
       const [lat, lon] = normalizeCoords(member.latitude, member.longitude);
       
       const marker = L.marker([lat, lon], {
-        icon: createNamePin(member),
+        icon: createNamePin(member, contactType),
       });
 
       // Click opens panel — no popup

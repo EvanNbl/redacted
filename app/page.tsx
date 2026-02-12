@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { parseMembersFromTable } from "@/lib/member-locations";
+import { parseMembersFromTable, isMemberLocked, getMemberDisplayName } from "@/lib/member-locations";
 import { enrichMembersWithNominatim } from "@/lib/geocode";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
 import { UpdateChecker } from "@/components/UpdateChecker";
@@ -206,7 +206,7 @@ export default function Home() {
         "Configuration Google Sheets manquante. Vérifiez les variables d'environnement."
       );
       setLoading(false);
-      return;
+      return [];
     }
 
     setLoading(true);
@@ -240,15 +240,18 @@ export default function Home() {
       if (values.length === 0) {
         setData({ headers: [], rows: [] });
         setMembers([]);
-        return;
+        return [];
       }
 
       const [headers, ...rows] = values;
+      const parsed = parseMembersFromTable(headers, rows, contactType);
       setData({ headers, rows });
-      setMembers(parseMembersFromTable(headers, rows, contactType));
+      setMembers(parsed);
+      return parsed;
     } catch (e) {
       console.error(e);
       setError("Impossible de charger les contacts depuis Google Sheets.");
+      return [];
     } finally {
       setLoading(false);
     }
@@ -292,6 +295,16 @@ export default function Home() {
     () => applyFilters(members, searchQuery, filters),
     [members, searchQuery, filters]
   );
+
+  /** Pour communication : contacts actifs vs REFUS (Lock = true). Pour commercial : tout dans actifs. */
+  const { membersActifs, membersRefus } = useMemo(() => {
+    if (contactType !== "communication") {
+      return { membersActifs: filteredMembers, membersRefus: [] };
+    }
+    const actifs = filteredMembers.filter((m) => !isMemberLocked(m));
+    const refus = filteredMembers.filter((m) => isMemberLocked(m));
+    return { membersActifs: actifs, membersRefus: refus };
+  }, [contactType, filteredMembers]);
 
   const uniqueCountries = useMemo(
     () => uniqueValues(members, (m) => m.pays),
@@ -386,6 +399,7 @@ export default function Home() {
             notes: updated.rawRow["Notes"] ?? "",
             latitude: String(updated.latitude),
             longitude: String(updated.longitude),
+            lock: updated.rawRow["Lock"] ?? updated.rawRow["lock"] ?? "",
           };
 
           if (useClientApi) {
@@ -421,6 +435,16 @@ export default function Home() {
           setMembers((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
+          setSelectedMember(updated);
+        } catch {
+          /* saveError déjà positionné — actualiser pour que le switch reflète l'état réel et permettre de réessayer */
+          const savedId = updated.id;
+          const freshMembers = await loadFromSheet();
+          setSelectedMember((prev) =>
+            prev?.id === savedId && freshMembers?.length
+              ? (freshMembers.find((m) => m.id === savedId) ?? prev)
+              : prev
+          );
         } finally {
           setSaving(false);
         }
@@ -430,7 +454,7 @@ export default function Home() {
         );
       }
     },
-    [contactType]
+    [contactType, loadFromSheet]
   );
 
   const handleAddMember = useCallback(
@@ -836,48 +860,135 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Contact list */}
+            {/* Contact list : Communication = section Contacts + section REFUS ; Commercial = liste unique */}
             <div className="flex-1 overflow-y-auto">
               {filteredMembers.length === 0 && !loading && (
                 <div className="px-3 py-8 text-center text-xs text-zinc-600">
                   Aucun contact trouvé
                 </div>
               )}
-              {filteredMembers.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => handleMemberClick(m)}
-                  className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
-                    selectedMember?.id === m.id
-                      ? "bg-violet-600/10 border-l-2 border-l-violet-500"
-                      : ""
-                  }`}
-                >
-                  {/* Avatar */}
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
-                    {(m.pseudo?.[0] ?? "?").toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
-                      {m.pseudo}
-                    </p>
-                    <p className="truncate text-[11px] text-zinc-500">
-                      {[m.ville, m.pays].filter(Boolean).join(", ")}
-                    </p>
-                  </div>
-                  {/* NDA badge */}
-                  {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
-                    (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
-                    <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                      NDA
-                    </span>
-                  ) : (
-                    <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                      NDA
-                    </span>
+              {contactType === "communication" && (
+                <>
+                  {/* Section Contacts (non verrouillés) */}
+                  {membersActifs.length > 0 && (
+                    <div className="border-b border-white/[0.04] px-2 pt-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                        Contacts
+                      </span>
+                      <span className="ml-1.5 rounded bg-violet-600/20 px-1.5 py-0.5 text-[10px] text-violet-400">
+                        {membersActifs.length}
+                      </span>
+                    </div>
                   )}
-                </button>
-              ))}
+                  {membersActifs.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleMemberClick(m)}
+                      className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                        selectedMember?.id === m.id
+                          ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                        {(m.pseudo?.[0] ?? "?").toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                          {m.pseudo}
+                        </p>
+                        <p className="truncate text-[11px] text-zinc-500">
+                          {[m.ville, m.pays].filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                      {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
+                        (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
+                        <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                          NDA
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                          NDA
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  {/* Section REFUS (Lock = true) */}
+                  {membersRefus.length > 0 && (
+                    <div className="border-b border-white/[0.04] px-2 pt-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400/90">
+                        REFUS
+                      </span>
+                      <span className="ml-1.5 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
+                        {membersRefus.length}
+                      </span>
+                    </div>
+                  )}
+                  {membersRefus.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleMemberClick(m)}
+                      className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                        selectedMember?.id === m.id
+                          ? "bg-red-600/10 border-l-2 border-l-red-500"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-600/20 text-xs font-bold text-red-300">
+                        {(m.pseudo?.[0] ?? "?").toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                          {m.pseudo}
+                        </p>
+                        <p className="truncate text-[11px] text-zinc-500">
+                          {[m.ville, m.pays].filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                      <span className="mt-0.5 shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-red-400">
+                        REFUS
+                      </span>
+                    </button>
+                  ))}
+                </>
+              )}
+              {contactType === "commercial" &&
+                filteredMembers.map((m) => {
+                  const displayName = getMemberDisplayName(m, "commercial");
+                  return (
+                  <button
+                    key={m.id}
+                    onClick={() => handleMemberClick(m)}
+                    className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
+                      selectedMember?.id === m.id
+                        ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                      {(displayName?.[0] ?? "?").toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-white">
+                        {displayName}
+                      </p>
+                      <p className="truncate text-[11px] text-zinc-500">
+                        {[m.ville, m.pays].filter(Boolean).join(", ")}
+                      </p>
+                    </div>
+                    {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
+                      (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
+                      <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
+                        NDA
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
+                        NDA
+                      </span>
+                    )}
+                  </button>
+                  );
+                })}
             </div>
 
             {/* Sidebar footer */}
@@ -953,6 +1064,7 @@ export default function Home() {
                 onMemberClick={handleMemberClick}
                 onMapClick={handleMapClick}
                 focusMemberId={selectedMember?.id ?? null}
+                contactType={contactType}
               />
             </section>
           )}

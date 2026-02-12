@@ -17,6 +17,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   notes: ["notes"],
   latitude: ["latitude", "lat"],
   longitude: ["longitude", "lon"],
+  lock: ["lock"],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
       notes = "",
       latitude = "",
       longitude = "",
+      lock = "",
       contactType = "communication",
     }: {
       memberId: string;
@@ -74,6 +76,7 @@ export async function POST(request: Request) {
       notes?: string;
       latitude?: string;
       longitude?: string;
+      lock?: string;
       contactType?: "communication" | "commercial";
     } = body;
 
@@ -167,6 +170,7 @@ export async function POST(request: Request) {
     const notesCol = findColumnIndex(indices, HEADER_ALIASES.notes);
     const latitudeCol = findColumnIndex(indices, HEADER_ALIASES.latitude);
     const longitudeCol = findColumnIndex(indices, HEADER_ALIASES.longitude);
+    const lockCol = findColumnIndex(indices, HEADER_ALIASES.lock);
 
     const newRow = [...currentRow];
     while (newRow.length < headerRow.length) newRow.push("");
@@ -185,6 +189,7 @@ export async function POST(request: Request) {
     if (notesCol >= 0) newRow[notesCol] = String(notes ?? "").trim();
     if (latitudeCol >= 0) newRow[latitudeCol] = String(latitude ?? "").trim();
     if (longitudeCol >= 0) newRow[longitudeCol] = String(longitude ?? "").trim();
+    if (lockCol >= 0) newRow[lockCol] = String(lock ?? "").trim();
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,

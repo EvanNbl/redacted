@@ -14,6 +14,7 @@ export interface MemberMapProps {
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
   focusMemberId?: string | null;
+  contactType?: "communication" | "commercial";
 }
 
 export function MemberMap({
@@ -22,6 +23,7 @@ export function MemberMap({
   onMemberClick,
   onMapClick,
   focusMemberId,
+  contactType = "communication",
 }: MemberMapProps) {
   const [mode, setMode] = useState<MapMode>("flat");
 
@@ -70,6 +72,7 @@ export function MemberMap({
           onMemberClick={onMemberClick}
           onMapClick={onMapClick}
           focusMemberId={focusMemberId}
+          contactType={contactType}
         />
       ) : (
         <FlatMapView
@@ -78,6 +81,7 @@ export function MemberMap({
           onMemberClick={onMemberClick}
           onMapClick={onMapClick}
           focusMemberId={focusMemberId}
+          contactType={contactType}
         />
       )}
     </div>

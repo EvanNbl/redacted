@@ -21,6 +21,7 @@ interface ReseauMultiSelectProps {
   placeholder?: string;
   id?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -33,6 +34,7 @@ export function ReseauMultiSelect({
   placeholder = "Sélectionner des réseaux",
   id,
   className,
+  disabled,
 }: ReseauMultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -119,11 +121,13 @@ export function ReseauMultiSelect({
       {/* Zone de sélection principale */}
       <div
         className={cn(
-          "flex min-h-8 w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm text-white shadow-xs outline-none transition-colors",
+          "flex min-h-8 w-full flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm text-white shadow-xs outline-none transition-colors",
           "focus-within:border-violet-500/50 focus-within:ring-2 focus-within:ring-violet-500/40",
-          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40"
+          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40",
+          disabled && "cursor-not-allowed opacity-50",
+          !disabled && "cursor-pointer"
         )}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
         role="combobox"
         aria-expanded={isOpen}
@@ -138,6 +142,7 @@ export function ReseauMultiSelect({
               className="inline-flex items-center gap-1 rounded-md bg-zinc-700/50 px-2 py-0.5 text-xs text-white"
             >
               {reseau}
+              {!disabled && (
               <button
                 type="button"
                 onClick={(e) => removeReseau(reseau, e)}
@@ -146,6 +151,7 @@ export function ReseauMultiSelect({
               >
                 <X className="size-3" />
               </button>
+              )}
             </span>
           ))
         ) : (

@@ -20,6 +20,7 @@ interface AddressAutocompleteProps {
   placeholder?: string;
   id?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -33,6 +34,7 @@ export function AddressAutocomplete({
   placeholder = "Rechercher une adresse…",
   id,
   className,
+  disabled,
 }: AddressAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -173,6 +175,7 @@ export function AddressAutocomplete({
           onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
           placeholder={placeholder}
           autoComplete="off"
+          disabled={disabled}
           className={`h-8 border-white/10 bg-white/[0.04] pl-8 text-sm text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40 ${className ?? ""}`}
         />
         {loading && (

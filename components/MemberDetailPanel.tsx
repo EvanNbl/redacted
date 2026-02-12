@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import type { MemberLocation } from "@/lib/member-locations";
-import { getCoordsForMember } from "@/lib/member-locations";
+import { getCoordsForMember, isMemberLocked } from "@/lib/member-locations";
 import { Save, UserPlus, X, MapPin, Trash2, Copy, Mail, ExternalLink, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
 import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
 import { ReseauMultiSelect } from "@/components/ReseauMultiSelect";
 import { CountrySelect } from "@/components/CountrySelect";
+import { Switch } from "@/components/ui/switch";
 
 const PAYS_OPTIONS = ["", ...PAYS_LIST];
 const NDA_OPTIONS = ["", "Oui", "Non"] as const;
@@ -113,6 +114,11 @@ export function MemberDetailPanel({
   contactType = "communication",
 }: MemberDetailPanelProps) {
   const isNew = member === null;
+  const isLocked =
+    !isNew &&
+    member != null &&
+    contactType === "communication" &&
+    isMemberLocked(member);
   const [form, setForm] = useState(emptyForm);
   const [coordsError, setCoordsError] = useState<string | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<
@@ -192,6 +198,7 @@ export function MemberDetailPanel({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
 
     // Validation pour les commerciaux : au moins Prénom ou Nom doit être rempli si pas de pseudo
     if (contactType === "commercial") {
@@ -316,6 +323,7 @@ export function MemberDetailPanel({
   };
 
   const handleDeleteClick = () => {
+    if (isLocked) return;
     setShowDeleteConfirm(true);
   };
 
@@ -497,9 +505,11 @@ export function MemberDetailPanel({
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
             <div className="flex items-center gap-2.5">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-violet-600/20">
+              <div className={`flex size-8 items-center justify-center rounded-lg ${isLocked ? "bg-red-600/20" : "bg-violet-600/20"}`}>
                 {isNew ? (
                   <UserPlus className="size-4 text-violet-400" />
+                ) : isLocked ? (
+                  <Save className="size-4 text-red-400" />
                 ) : (
                   <Save className="size-4 text-violet-400" />
                 )}
@@ -508,7 +518,7 @@ export function MemberDetailPanel({
                 id="panel-title"
                 className="text-base font-semibold tracking-tight text-white"
               >
-                {isNew ? "Nouveau contact" : "Modifier le contact"}
+                {isNew ? "Nouveau contact" : isLocked ? "Contact verrouillé" : "Modifier le contact"}
               </h2>
             </div>
             <button
@@ -521,10 +531,41 @@ export function MemberDetailPanel({
             </button>
           </div>
 
+          {/* Switch Verrouillé (communication uniquement) — seul moyen de déverrouiller */}
+          {!isNew && member && contactType === "communication" && (
+            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-5 py-3">
+              <span className="text-sm font-medium text-zinc-300">
+                Verrouillé
+              </span>
+              <Switch
+                checked={isLocked}
+                disabled={saving}
+                onCheckedChange={async (checked) => {
+                  const newLock = checked ? "true" : "false";
+                  const updated: MemberLocation = {
+                    ...member,
+                    rawRow: { ...member.rawRow, Lock: newLock },
+                  };
+                  try {
+                    await Promise.resolve(onSave(updated));
+                  } catch {
+                    /* saveError affiché par le parent */
+                  }
+                }}
+                className="data-[state=checked]:bg-red-600 data-[state=checked]:opacity-100"
+              />
+            </div>
+          )}
+
           <form
             onSubmit={handleSubmit}
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
+            {isLocked && (
+              <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-5 py-2.5 text-xs text-red-300">
+                Ce contact est verrouillé. Les modifications sont désactivées.
+              </div>
+            )}
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
               {/* ── Identité ── */}
               <fieldset className="space-y-2.5">
@@ -533,21 +574,6 @@ export function MemberDetailPanel({
                 </legend>
                 {contactType === "commercial" ? (
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="panel-prenom" className={fieldLabel}>
-                        Prénom
-                      </label>
-                      <Input
-                        id="panel-prenom"
-                        type="text"
-                        value={form.prenom}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, prenom: e.target.value }))
-                        }
-                        className={inputClass}
-                        placeholder="Prénom"
-                      />
-                    </div>
                     <div className="space-y-1">
                       <label htmlFor="panel-nom" className={fieldLabel}>
                         Nom
@@ -561,6 +587,23 @@ export function MemberDetailPanel({
                         }
                         className={inputClass}
                         placeholder="Nom"
+                        disabled={isLocked}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="panel-prenom" className={fieldLabel}>
+                        Prénom
+                      </label>
+                      <Input
+                        id="panel-prenom"
+                        type="text"
+                        value={form.prenom}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, prenom: e.target.value }))
+                        }
+                        className={inputClass}
+                        placeholder="Prénom"
+                        disabled={isLocked}
                       />
                     </div>
                   </div>
@@ -568,7 +611,7 @@ export function MemberDetailPanel({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label htmlFor="panel-pseudo" className={fieldLabel}>
-                      {contactType === "commercial" ? "Pseudo" : "Pseudo"}
+                      {contactType === "commercial" ? "Pseudo / Entreprise" : "Pseudo"}
                     </label>
                     <Input
                       id="panel-pseudo"
@@ -578,7 +621,8 @@ export function MemberDetailPanel({
                         setForm((f) => ({ ...f, pseudo: e.target.value }))
                       }
                       className={inputClass}
-                      placeholder={contactType === "commercial" ? "Pseudo (optionnel)" : "Nom ou pseudo"}
+                      placeholder={contactType === "commercial" ? "Pseudo ou nom d'entreprise" : "Nom ou pseudo"}
+                      disabled={isLocked}
                     />
                   </div>
                   <div className="space-y-1">
@@ -595,6 +639,7 @@ export function MemberDetailPanel({
                           idDiscord: e.target.value,
                         }))
                       }
+                      disabled={isLocked}
                       className={inputClass}
                       placeholder="Optionnel"
                     />
@@ -617,8 +662,9 @@ export function MemberDetailPanel({
                       }
                       className={cn(inputClass, "flex-1")}
                       placeholder="exemple@email.com"
+                      disabled={isLocked}
                     />
-                    {form.email && (
+                    {form.email && !isLocked && (
                       <>
                         <Button
                           type="button"
@@ -667,6 +713,7 @@ export function MemberDetailPanel({
                     }}
                     onSelect={handleAddressSelect}
                     placeholder="Tapez une adresse, ville…"
+                    disabled={isLocked}
                   />
                   <p className="text-[10px] text-zinc-600">
                     Sélectionnez une suggestion pour un placement précis sur la carte.
@@ -687,6 +734,7 @@ export function MemberDetailPanel({
                         setGeocodedCoords(null);
                       }}
                       placeholder="Sélectionner"
+                      disabled={isLocked}
                     />
                   </div>
                   <div className="space-y-1">
@@ -702,6 +750,7 @@ export function MemberDetailPanel({
                       }
                       className={inputClass}
                       placeholder="ex. Wallonie"
+                      disabled={isLocked}
                     />
                   </div>
                 </div>
@@ -736,6 +785,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       placeholder="Sélectionner"
+                      disabled={isLocked}
                     />
                   </div>
                   <div className="space-y-1">
@@ -752,6 +802,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       className={selectClass}
+                      disabled={isLocked}
                     >
                       {NDA_OPTIONS.filter((opt) => opt !== "").map((opt) => (
                         <option key={opt} value={opt}>
@@ -774,6 +825,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       className={selectClass}
+                      disabled={isLocked}
                     >
                       <option value="">Sélectionner</option>
                       {form.referent &&
@@ -800,6 +852,7 @@ export function MemberDetailPanel({
                       setForm((f) => ({ ...f, notes: e.target.value }))
                     }
                     rows={2}
+                    disabled={isLocked}
                     className={cn(
                       "w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none",
                       "focus-visible:border-violet-500/50 focus-visible:ring-2 focus-visible:ring-violet-500/40"
@@ -825,6 +878,7 @@ export function MemberDetailPanel({
                     selected={reseauxSelectionnes}
                     onChange={handleReseauxSelectionChange}
                     placeholder="Sélectionner des réseaux sociaux"
+                    disabled={isLocked}
                   />
                 </div>
 
@@ -850,6 +904,7 @@ export function MemberDetailPanel({
                         >
                           {reseau}
                         </label>
+                        {!isLocked && (
                         <button
                           type="button"
                           onClick={() => handleRemoveReseau(reseau)}
@@ -857,6 +912,7 @@ export function MemberDetailPanel({
                         >
                           Supprimer
                         </button>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <Input
@@ -872,8 +928,9 @@ export function MemberDetailPanel({
                               ? "URL complète (ex: https://...)"
                               : `URL ou identifiant ${reseau}`
                           }
+                          disabled={isLocked}
                         />
-                        {getReseauUrl(reseau, value) && (
+                        {getReseauUrl(reseau, value) && !isLocked && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -968,7 +1025,7 @@ export function MemberDetailPanel({
             {/* Footer */}
             <div className="shrink-0 border-t border-white/[0.06] bg-black/30 px-5 py-3">
               <div className="flex gap-3">
-                {!isNew && onDelete && (
+                {!isNew && onDelete && !isLocked && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -984,29 +1041,31 @@ export function MemberDetailPanel({
                   variant="ghost"
                   onClick={onClose}
                   disabled={saving || deleting}
-                  className="flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"
+                  className={isLocked ? "flex-1" : "flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"}
                 >
-                  Annuler
+                  {isLocked ? "Fermer" : "Annuler"}
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={saving || deleting}
-                  className="flex flex-1 items-center justify-center gap-2 bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-70"
-                >
-                  {saving ? (
-                    "Enregistrement…"
-                  ) : isNew ? (
-                    <>
-                      <UserPlus className="size-4" />
-                      Ajouter
-                    </>
-                  ) : (
-                    <>
-                      <Save className="size-4" />
-                      Enregistrer
-                    </>
-                  )}
-                </Button>
+                {!isLocked && (
+                  <Button
+                    type="submit"
+                    disabled={saving || deleting}
+                    className="flex flex-1 items-center justify-center gap-2 bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-70"
+                  >
+                    {saving ? (
+                      "Enregistrement…"
+                    ) : isNew ? (
+                      <>
+                        <UserPlus className="size-4" />
+                        Ajouter
+                      </>
+                    ) : (
+                      <>
+                        <Save className="size-4" />
+                        Enregistrer
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </form>

@@ -12,6 +12,7 @@ interface CountrySelectProps {
   placeholder?: string;
   id?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -24,6 +25,7 @@ export function CountrySelect({
   placeholder = "Sélectionner un pays",
   id,
   className,
+  disabled,
 }: CountrySelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,6 +58,11 @@ export function CountrySelect({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Fermer le dropdown quand disabled
+  useEffect(() => {
+    if (disabled && isOpen) setIsOpen(false);
+  }, [disabled, isOpen]);
 
   // Focus sur le champ de recherche quand le dropdown s'ouvre
   useEffect(() => {
@@ -103,11 +110,13 @@ export function CountrySelect({
       {/* Zone de sélection principale */}
       <div
         className={cn(
-          "flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm text-white shadow-xs outline-none transition-colors",
+          "flex min-h-8 w-full items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm text-white shadow-xs outline-none transition-colors",
           "focus-within:border-violet-500/50 focus-within:ring-2 focus-within:ring-violet-500/40",
-          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40"
+          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40",
+          disabled && "cursor-not-allowed opacity-50 pointer-events-none",
+          !disabled && "cursor-pointer"
         )}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
         role="combobox"
         aria-expanded={isOpen}
@@ -129,7 +138,7 @@ export function CountrySelect({
       </div>
 
       {/* Dropdown */}
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-white/10 bg-zinc-900/98 py-1 shadow-2xl backdrop-blur-xl">
           {/* Barre de recherche */}
           <div className="px-2 pb-2">

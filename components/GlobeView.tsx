@@ -12,6 +12,7 @@ import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, useTexture, Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { MemberLocation } from "@/lib/member-locations";
+import { isMemberLocked, isNdaSigned, getMemberDisplayName } from "@/lib/member-locations";
 
 const CAMERA_POS = new THREE.Vector3();
 
@@ -117,17 +118,19 @@ function Earth() {
 
 /* ── Marker ──────────────────────────────────────────────── */
 
-/** Single member marker on the globe. Label only on hover to avoid overlap. */
+/** Single member marker on the globe. Commercial = "Nom Prénom / Entreprise". */
 function MemberMarker({
   member,
   position,
   visible,
   onClick,
+  contactType = "communication",
 }: {
   member: MemberLocation;
   position: [number, number, number];
   visible: boolean;
   onClick: (member: MemberLocation) => void;
+  contactType?: "communication" | "commercial";
 }) {
   const [hovered, setHovered] = useState(false);
   const groupRef = useRef<THREE.Group>(null);
@@ -169,6 +172,25 @@ function MemberMarker({
 
   if (!visible) return null;
 
+  const locked = isMemberLocked(member);
+  const ndaSigned = isNdaSigned(member);
+  let mainColor: string;
+  let darkColor: string;
+  let highlightColor: string;
+  if (locked) {
+    mainColor = "#71717a";
+    darkColor = "#52525b";
+    highlightColor = "#a1a1aa";
+  } else if (ndaSigned) {
+    mainColor = "#22c55e";
+    darkColor = "#16a34a";
+    highlightColor = "#86efac";
+  } else {
+    mainColor = "#8b5cf6";
+    darkColor = "#6d28d9";
+    highlightColor = "#c4b5fd";
+  }
+
   return (
     <group
       ref={groupRef}
@@ -181,7 +203,7 @@ function MemberMarker({
       <mesh>
         <sphereGeometry args={[0.008, 16, 16]} />
         <meshBasicMaterial
-          color="#8b5cf6"
+          color={mainColor}
           transparent
           opacity={0.6}
           depthWrite={false}
@@ -191,22 +213,22 @@ function MemberMarker({
       <mesh>
         <sphereGeometry args={[0.0065, 16, 16]} />
         <meshBasicMaterial
-          color="#8b5cf6"
+          color={mainColor}
           transparent
           opacity={0.25}
           depthWrite={false}
         />
       </mesh>
-      {/* Main dot with gradient effect - inner part (darker purple) */}
+      {/* Main dot with gradient effect - inner part (darker) */}
       <mesh>
         <sphereGeometry args={[0.005, 16, 16]} />
-        <meshBasicMaterial color="#6d28d9" />
+        <meshBasicMaterial color={darkColor} />
       </mesh>
       {/* Middle gradient layer */}
       <mesh>
         <sphereGeometry args={[0.0045, 16, 16]} />
         <meshBasicMaterial
-          color="#8b5cf6"
+          color={mainColor}
           transparent
           opacity={0.7}
         />
@@ -214,7 +236,7 @@ function MemberMarker({
       {/* Inner highlight - matches radial gradient highlight */}
       <mesh>
         <sphereGeometry args={[0.003, 16, 16]} />
-        <meshBasicMaterial color="#c4b5fd" />
+        <meshBasicMaterial color={highlightColor} />
       </mesh>
       {/* Nom affiché en permanence */}
       <Html
@@ -230,7 +252,7 @@ function MemberMarker({
         }}
       >
         <div className="text-[5px] font-medium text-white">
-          {member.pseudo}
+          {getMemberDisplayName(member, contactType)}
         </div>
       </Html>
     </group>
@@ -254,11 +276,13 @@ function GlobeScene({
   onMemberClick,
   onMapClick,
   focusMemberId,
+  contactType = "communication",
 }: {
   members: MemberLocation[];
   onMemberClick: (member: MemberLocation) => void;
   onMapClick?: () => void;
   focusMemberId?: string | null;
+  contactType?: "communication" | "commercial";
 }) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
@@ -390,6 +414,7 @@ function GlobeScene({
           position={positions[i]}
           visible={visible[i]}
           onClick={onMemberClick}
+          contactType={contactType}
         />
       ))}
 
@@ -421,6 +446,7 @@ export interface GlobeViewProps {
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
   focusMemberId?: string | null;
+  contactType?: "communication" | "commercial";
 }
 
 export function GlobeView({
@@ -429,6 +455,7 @@ export function GlobeView({
   onMemberClick = () => {},
   onMapClick,
   focusMemberId,
+  contactType = "communication",
 }: GlobeViewProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -483,6 +510,7 @@ export function GlobeView({
             onMemberClick={onMemberClick}
             onMapClick={onMapClick}
             focusMemberId={focusMemberId}
+            contactType={contactType}
           />
         </Suspense>
       </Canvas>

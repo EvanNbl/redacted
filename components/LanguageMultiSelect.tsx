@@ -30,6 +30,7 @@ interface LanguageMultiSelectProps {
   placeholder?: string;
   id?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -42,6 +43,7 @@ export function LanguageMultiSelect({
   placeholder = "Sélectionner",
   id,
   className,
+  disabled,
 }: LanguageMultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,6 +79,11 @@ export function LanguageMultiSelect({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Fermer le dropdown quand disabled
+  useEffect(() => {
+    if (disabled && isOpen) setIsOpen(false);
+  }, [disabled, isOpen]);
 
   // Focus sur le champ de recherche quand le dropdown s'ouvre
   useEffect(() => {
@@ -136,11 +143,13 @@ export function LanguageMultiSelect({
       {/* Zone de sélection principale */}
       <div
         className={cn(
-          "flex min-h-8 h-8 w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-sm text-white shadow-xs outline-none transition-colors overflow-hidden",
+          "flex min-h-8 h-8 w-full flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-sm text-white shadow-xs outline-none transition-colors overflow-hidden",
           "focus-within:border-violet-500/50 focus-within:ring-2 focus-within:ring-violet-500/40",
-          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40"
+          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40",
+          disabled && "cursor-not-allowed opacity-50 pointer-events-none",
+          !disabled && "cursor-pointer"
         )}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
         role="combobox"
         aria-expanded={isOpen}
@@ -155,6 +164,7 @@ export function LanguageMultiSelect({
               className="inline-flex items-center gap-1 rounded-md bg-zinc-700/50 px-2 py-0.5 text-xs text-white"
             >
               {lang}
+              {!disabled && (
               <button
                 type="button"
                 onClick={(e) => removeLanguage(lang, e)}
@@ -163,6 +173,7 @@ export function LanguageMultiSelect({
               >
                 <X className="size-3" />
               </button>
+              )}
             </span>
           ))
         ) : (
@@ -179,7 +190,7 @@ export function LanguageMultiSelect({
       </div>
 
       {/* Dropdown */}
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute top-full left-0 z-[100] mt-1 w-full rounded-lg border border-white/10 bg-zinc-900/98 py-1 shadow-2xl backdrop-blur-xl">
           {/* Barre de recherche */}
           <div className="px-2 pb-2">

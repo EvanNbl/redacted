@@ -20,6 +20,34 @@ export type MemberLocation = {
   rawRow: Record<string, string>;
 };
 
+/** True si la colonne Lock du contact communication est true/oui/1 (case insensitive). */
+export function isMemberLocked(m: MemberLocation): boolean {
+  const v = (m.rawRow["Lock"] ?? m.rawRow["lock"] ?? "").trim().toLowerCase();
+  return v === "true" || v === "oui" || v === "1";
+}
+
+/** True si la NDA est signée (Oui). */
+export function isNdaSigned(m: MemberLocation): boolean {
+  const v = (m.rawRow["NDA Signée"] ?? m.rawRow["NDA Signee"] ?? "").trim().toLowerCase();
+  return v === "oui";
+}
+
+/** Libellé affiché sur la carte/globe : commercial = "Nom Prénom / Entreprise", communication = pseudo. */
+export function getMemberDisplayName(
+  m: MemberLocation,
+  contactType: "communication" | "commercial"
+): string {
+  if (contactType === "commercial") {
+    const nom = (m.rawRow["Nom"] ?? "").trim();
+    const prenom = (m.rawRow["Prénom"] ?? m.rawRow["Prenom"] ?? "").trim();
+    const entreprise = (m.pseudo ?? "").trim();
+    const namePart = [nom, prenom].filter(Boolean).join(" ").trim();
+    if (namePart) return entreprise ? `${namePart} / ${entreprise}` : namePart;
+    return entreprise || "?";
+  }
+  return m.pseudo?.trim() || "?";
+}
+
 /** Index des colonnes par nom d’en-tête (normalisé minuscule). */
 function getHeaderIndices(headers: string[]): Record<string, number> {
   const out: Record<string, number> = {};

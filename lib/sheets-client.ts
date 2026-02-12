@@ -129,6 +129,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   notes: ["notes"],
   latitude: ["latitude", "lat"],
   longitude: ["longitude", "lon"],
+  lock: ["lock"],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -168,6 +169,7 @@ export interface SheetsMemberData {
   notes?: string;
   latitude?: string;
   longitude?: string;
+  lock?: string;
 }
 
 function buildRow(
@@ -194,6 +196,7 @@ function buildRow(
     notes: data.notes,
     latitude: data.latitude,
     longitude: data.longitude,
+    lock: data.lock,
   };
 
   for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {

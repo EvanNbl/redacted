@@ -183,6 +183,30 @@
     0 0 0 3px rgba(139, 92, 246, 0.3);
 }
 
+/* Pin verrouillé (REFUS) : point gris sur la carte plate */
+.name-pin.name-pin--locked .name-pin-dot,
+.leaflet-marker-icon .name-pin.name-pin--locked .name-pin-dot {
+  background: radial-gradient(circle at 35% 35%, #a1a1aa, #71717a 60%, #52525b) !important;
+  box-shadow:
+    0 0 8px rgba(113, 113, 122, 0.6),
+    0 0 0 2px rgba(113, 113, 122, 0.25) !important;
+}
+
+.name-pin.name-pin--locked:hover .name-pin-dot,
+.leaflet-marker-icon .name-pin.name-pin--locked:hover .name-pin-dot {
+  box-shadow:
+    0 0 12px rgba(113, 113, 122, 0.8),
+    0 0 0 3px rgba(113, 113, 122, 0.3) !important;
+}
+
+/* Pin NDA signée : point vert (hover sur carte plate) */
+.name-pin.name-pin--nda:hover .name-pin-dot,
+.leaflet-marker-icon .name-pin.name-pin--nda:hover .name-pin-dot {
+  box-shadow:
+    0 0 12px rgba(34, 197, 94, 0.8),
+    0 0 0 3px rgba(34, 197, 94, 0.3) !important;
+}
+
 .name-pin-label {
   font-size: 11px;
   font-weight: 600;
