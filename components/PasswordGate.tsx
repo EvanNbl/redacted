@@ -38,8 +38,9 @@ export function PasswordGate({ children }: PasswordGateProps) {
     setChecking(true);
     const pwd = password.trim();
     try {
-      // 1) Essayer la route API (quand un serveur Next est dispo)
       let ok = false;
+
+      // 1) Essayer la route API (uniquement en dev avec next dev — en prod statique / Tauri elle n'existe pas)
       try {
         const res = await fetch("/api/auth/check-password", {
           method: "POST",
@@ -47,9 +48,15 @@ export function PasswordGate({ children }: PasswordGateProps) {
           body: JSON.stringify({ password: pwd }),
         });
         const data = await res.json().catch(() => ({}));
-        ok = res.ok && data.ok === true;
+        if (res.ok && data.ok === true) {
+          ok = true;
+        }
       } catch {
-        // 2) Fallback build statique / Tauri : lire le mot de passe depuis le sheet
+        // Erreur réseau : on passe au fallback
+      }
+
+      // 2) Si l'API n'a pas validé (404 en prod, ou mot de passe refusé), fallback build statique / Tauri
+      if (!ok) {
         const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
         const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
         const range = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS ?? "MDP!A1:B2";
