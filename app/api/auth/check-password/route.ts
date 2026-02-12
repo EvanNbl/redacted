@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       `'${sheetName}'!A1:A1`,
     ];
 
-    let res: { data: { values?: unknown[][] } } | null = null;
+    let res: { data: { values?: unknown[][] | null } } | null = null;
     let lastErr: unknown = null;
 
     for (const range of rangesToTry) {
