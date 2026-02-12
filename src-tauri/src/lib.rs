@@ -273,6 +273,28 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            
+            // Ouvrir les DevTools en production si la variable d'environnement est activée
+            #[cfg(desktop)]
+            {
+                // Charger les variables d'environnement depuis .env si disponible
+                let _ = dotenvy::dotenv();
+                
+                // Vérifier si les DevTools doivent être activés via la variable d'environnement
+                let enable_devtools = std::env::var("TAURI_ENABLE_DEVTOOLS")
+                    .map(|v| v == "true" || v == "1")
+                    .unwrap_or(false);
+                
+                if enable_devtools {
+                    // Essayer d'obtenir la fenêtre principale (par défaut "main" ou la première fenêtre)
+                    if let Some(window) = app.get_webview_window("main") {
+                        window.open_devtools();
+                    } else if let Some((_, window)) = app.webview_windows().iter().next() {
+                        window.open_devtools();
+                    }
+                }
+            }
+            
             Ok(())
         })
         .run(tauri::generate_context!())
