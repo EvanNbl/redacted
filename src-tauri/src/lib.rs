@@ -286,10 +286,11 @@ pub fn run() {
                     .unwrap_or(false);
                 
                 if enable_devtools {
+                    let app_handle = app.handle();
                     // Essayer d'obtenir la fenêtre principale (par défaut "main" ou la première fenêtre)
-                    if let Some(window) = app.get_webview_window("main") {
+                    if let Some(window) = app_handle.get_webview_window("main") {
                         window.open_devtools();
-                    } else if let Some((_, window)) = app.webview_windows().iter().next() {
+                    } else if let Some((_, window)) = app_handle.webview_windows().iter().next() {
                         window.open_devtools();
                     }
                 }
