@@ -11,11 +11,22 @@ mod updater_cmd {
     fn get_github_token() -> Option<String> {
         // 1. Token compilé dans le binaire via build.rs (si disponible au moment du build)
         // Cela fonctionne en production car le token est injecté dans le binaire lors de la compilation
-        option_env!("TAURI_UPDATE_TOKEN")
+        let token = option_env!("TAURI_UPDATE_TOKEN")
             .map(String::from)
             // 2. Variable d'environnement au runtime (pour le dev local)
             .or_else(|| std::env::var("TAURI_UPDATE_TOKEN").ok())
-            .or_else(|| std::env::var("GITHUB_TOKEN").ok())
+            .or_else(|| std::env::var("GITHUB_TOKEN").ok());
+        
+        if token.is_some() {
+            log::info!("[GitHub API] Token trouvé (source: compilé ou env)");
+        } else {
+            log::warn!("[GitHub API] Aucun token trouvé - option_env!={:?}, TAURI_UPDATE_TOKEN={:?}, GITHUB_TOKEN={:?}", 
+                option_env!("TAURI_UPDATE_TOKEN").is_some(),
+                std::env::var("TAURI_UPDATE_TOKEN").is_ok(),
+                std::env::var("GITHUB_TOKEN").is_ok());
+        }
+        
+        token
     }
 
     #[derive(Debug, Serialize)]
@@ -29,43 +40,86 @@ mod updater_cmd {
 
     #[tauri::command]
     pub async fn get_app_versions(app: AppHandle) -> AppVersions {
+        log::info!("[GitHub API] Début de get_app_versions");
         let current = app.package_info().version.to_string();
+        log::info!("[GitHub API] Version actuelle: {}", current);
+        
         // Charger .env du projet (racine) pour que TAURI_UPDATE_TOKEN soit dispo en dev
         let _ = dotenvy::dotenv();
         if std::env::var("TAURI_UPDATE_TOKEN").is_err() && std::env::var("GITHUB_TOKEN").is_err() {
             if let Ok(cwd) = std::env::current_dir() {
-                let _ = dotenvy::from_path(cwd.join("..").join(".env"));
+                let env_path = cwd.join("..").join(".env");
+                log::info!("[GitHub API] Tentative de chargement .env depuis: {:?}", env_path);
+                let _ = dotenvy::from_path(env_path);
             }
         }
+        
         let client = match reqwest::Client::builder()
             .user_agent("ProjetParis-Tauri-Updater")
             .build()
         {
-            Ok(c) => c,
-            Err(e) => return AppVersions {
-                current: current.clone(),
-                latest: None,
-                latest_notes: None,
-                api_error: Some(e.to_string()),
+            Ok(c) => {
+                log::info!("[GitHub API] Client HTTP créé avec succès");
+                c
+            },
+            Err(e) => {
+                log::error!("[GitHub API] Erreur création client HTTP: {}", e);
+                return AppVersions {
+                    current: current.clone(),
+                    latest: None,
+                    latest_notes: None,
+                    api_error: Some(e.to_string()),
+                };
             },
         };
+        
         // Token pour dépôt privé (même que pour le téléchargement des mises à jour)
         let token = get_github_token();
+        log::info!("[GitHub API] URL de l'API: {}", GITHUB_API_LATEST);
+        log::info!("[GitHub API] Token présent: {}", token.is_some());
+        if let Some(t) = &token {
+            log::info!("[GitHub API] Token length: {} caractères", t.len());
+            log::info!("[GitHub API] Token prefix: {}...", &t[..t.len().min(10)]);
+        }
+        
         let mut request = client.get(GITHUB_API_LATEST);
         if let Some(t) = &token {
             request = request.header("Authorization", format!("Bearer {}", t));
+            log::info!("[GitHub API] Header Authorization ajouté");
+        } else {
+            log::warn!("[GitHub API] Aucun header Authorization - requête non authentifiée");
         }
+        
+        log::info!("[GitHub API] Envoi de la requête...");
         let (json, api_error) = match request.send().await {
             Ok(resp) => {
+                let status = resp.status();
+                log::info!("[GitHub API] Réponse reçue - Status: {} {}", status.as_u16(), status.canonical_reason().unwrap_or(""));
+                
                 if resp.status().is_success() {
-                    (resp.json::<serde_json::Value>().await.ok(), None)
+                    log::info!("[GitHub API] Requête réussie, parsing JSON...");
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(json_val) => {
+                            log::info!("[GitHub API] JSON parsé avec succès");
+                            (Some(json_val), None)
+                        },
+                        Err(e) => {
+                            log::error!("[GitHub API] Erreur parsing JSON: {}", e);
+                            (None, Some(format!("Erreur parsing JSON: {}", e)))
+                        }
+                    }
                 } else {
-                    let status = resp.status();
-                    let err_msg = format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or(""));
+                    // Essayer de lire le corps de la réponse pour plus de détails
+                    let error_body = resp.text().await.unwrap_or_else(|_| "Impossible de lire le corps".to_string());
+                    log::error!("[GitHub API] Erreur HTTP {} - Body: {}", status.as_u16(), error_body);
+                    let err_msg = format!("{} {} - {}", status.as_u16(), status.canonical_reason().unwrap_or(""), error_body);
                     (None, Some(err_msg))
                 }
             }
-            Err(e) => (None, Some(e.to_string())),
+            Err(e) => {
+                log::error!("[GitHub API] Erreur réseau: {}", e);
+                (None, Some(e.to_string())),
+            },
         };
         let latest = json
             .as_ref()
@@ -285,13 +339,12 @@ pub fn run() {
 
     builder
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Activer le logger même en production pour le débogage
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             
             // Ouvrir les DevTools en production si la variable d'environnement est activée
             #[cfg(desktop)]
