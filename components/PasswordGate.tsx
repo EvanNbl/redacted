@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -31,8 +31,14 @@ export function PasswordGate({ children }: PasswordGateProps) {
 
     const correctPassword = process.env.NEXT_PUBLIC_APP_PASSWORD;
     
-    if (!correctPassword) {
-      setError("Configuration manquante. Veuillez contacter l'administrateur.");
+    // Vérifier si la variable est définie et non vide
+    if (!correctPassword || correctPassword.trim() === "") {
+      if (process.env.NODE_ENV === "development") {
+        console.error("[PasswordGate] NEXT_PUBLIC_APP_PASSWORD n'est pas définie ou est vide");
+        setError("Configuration manquante. NEXT_PUBLIC_APP_PASSWORD n'est pas définie.");
+      } else {
+        setError("Configuration manquante. Veuillez contacter l'administrateur.");
+      }
       return;
     }
 
@@ -65,6 +71,12 @@ export function PasswordGate({ children }: PasswordGateProps) {
     <div className="flex h-screen items-center justify-center bg-[#07070b]">
       <div className="w-full max-w-md px-6">
         <div className="rounded-2xl border border-white/10 bg-[#0a0a10]/90 backdrop-blur-xl p-8 shadow-2xl">
+          {/* Icon */}
+          <div className="mb-6 flex justify-center">
+            <div className="flex size-16 items-center justify-center rounded-2xl bg-violet-600/20">
+              <Lock className="size-8 text-violet-400" />
+            </div>
+          </div>
 
           {/* Title */}
           <h1 className="mb-2 text-center text-2xl font-semibold text-white">
