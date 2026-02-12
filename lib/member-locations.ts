@@ -110,12 +110,15 @@ export function getCoordsForMember(
  */
 export function parseMembersFromTable(
   headers: string[],
-  rows: string[][]
+  rows: string[][],
+  contactType: "communication" | "commercial" = "communication"
 ): MemberLocation[] {
   if (headers.length === 0 || rows.length === 0) return [];
 
   const idx = getHeaderIndices(headers);
   const pseudoCol = idx["pseudo"] ?? 0;
+  const prenomCol = idx["prénom"] ?? idx["prenom"] ?? -1;
+  const nomCol = idx["nom"] ?? -1;
   const paysCol = idx["pays"] ?? -1;
   const regionCol = idx["region/etat"] ?? idx["region"] ?? -1;
   const villeCol = idx["ville"] ?? -1;
@@ -126,7 +129,20 @@ export function parseMembersFromTable(
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
-    const pseudo = (row[pseudoCol] ?? "").trim();
+    let pseudo = (row[pseudoCol] ?? "").trim();
+    
+    // Pour les commerciaux, construire le pseudo à partir de Prénom et Nom si disponible
+    if (contactType === "commercial") {
+      const prenom = prenomCol >= 0 ? (row[prenomCol] ?? "").trim() : "";
+      const nom = nomCol >= 0 ? (row[nomCol] ?? "").trim() : "";
+      if (!pseudo && (prenom || nom)) {
+        pseudo = [prenom, nom].filter(Boolean).join(" ").trim();
+      }
+      if (!pseudo) continue; // Skip si pas de pseudo/prénom/nom
+    } else {
+      if (!pseudo) continue; // Skip si pas de pseudo pour communication
+    }
+    
     const pays = paysCol >= 0 ? (row[paysCol] ?? "").trim() : "";
     const region = regionCol >= 0 ? (row[regionCol] ?? "").trim() : "";
     const ville = villeCol >= 0 ? (row[villeCol] ?? "").trim() : "";

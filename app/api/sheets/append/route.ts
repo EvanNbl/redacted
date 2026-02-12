@@ -3,6 +3,8 @@ import { google } from "googleapis";
 
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
+  prenom: ["prénom", "prenom"],
+  nom: ["nom"],
   idDiscord: ["id discord", "discord"],
   email: ["email", "e-mail"],
   pays: ["pays"],
@@ -40,6 +42,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       pseudo = "",
+      prenom = "",
+      nom = "",
       idDiscord = "",
       email = "",
       pays = "",
@@ -51,8 +55,11 @@ export async function POST(request: Request) {
       notes = "",
       latitude = "",
       longitude = "",
+      contactType = "communication",
     }: {
       pseudo?: string;
+      prenom?: string;
+      nom?: string;
       idDiscord?: string;
       email?: string;
       pays?: string;
@@ -64,15 +71,15 @@ export async function POST(request: Request) {
       notes?: string;
       latitude?: string;
       longitude?: string;
+      contactType?: "communication" | "commercial";
     } = body;
 
     const spreadsheetId =
       process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
       process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-    const rangeA1 =
-      process.env.GOOGLE_SHEETS_RANGE ??
-      process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ??
-      "Contacts!A1:Z1000";
+    const rangeA1 = contactType === "commercial"
+      ? (process.env.GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
+      : (process.env.GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
 
     if (!spreadsheetId) {
       return NextResponse.json(
@@ -121,6 +128,8 @@ export async function POST(request: Request) {
     const indices = getHeaderIndices(headerRow);
 
     const pseudoCol = findColumnIndex(indices, HEADER_ALIASES.pseudo);
+    const prenomCol = findColumnIndex(indices, HEADER_ALIASES.prenom);
+    const nomCol = findColumnIndex(indices, HEADER_ALIASES.nom);
     const idDiscordCol = findColumnIndex(indices, HEADER_ALIASES.idDiscord);
     const emailCol = findColumnIndex(indices, HEADER_ALIASES.email);
     const paysCol = findColumnIndex(indices, HEADER_ALIASES.pays);
@@ -135,6 +144,8 @@ export async function POST(request: Request) {
 
     const newRow: string[] = Array(headerRow.length).fill("");
     if (pseudoCol >= 0) newRow[pseudoCol] = String(pseudo ?? "").trim();
+    if (prenomCol >= 0) newRow[prenomCol] = String(prenom ?? "").trim();
+    if (nomCol >= 0) newRow[nomCol] = String(nom ?? "").trim();
     if (idDiscordCol >= 0) newRow[idDiscordCol] = String(idDiscord ?? "").trim();
     if (emailCol >= 0) newRow[emailCol] = String(email ?? "").trim();
     if (paysCol >= 0) newRow[paysCol] = String(pays ?? "").trim();

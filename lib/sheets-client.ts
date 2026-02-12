@@ -116,6 +116,8 @@ async function getAccessToken(
 
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
+  prenom: ["prénom", "prenom"],
+  nom: ["nom"],
   idDiscord: ["id discord", "discord"],
   email: ["email", "e-mail"],
   pays: ["pays"],
@@ -153,6 +155,8 @@ export function isClientSheetsAvailable(): boolean {
 
 export interface SheetsMemberData {
   pseudo?: string;
+  prenom?: string;
+  nom?: string;
   idDiscord?: string;
   email?: string;
   pays?: string;
@@ -177,6 +181,8 @@ function buildRow(
 
   const map: Record<string, string | undefined> = {
     pseudo: data.pseudo,
+    prenom: data.prenom,
+    nom: data.nom,
     idDiscord: data.idDiscord,
     email: data.email,
     pays: data.pays,
@@ -200,7 +206,8 @@ function buildRow(
 }
 
 export async function appendRowToSheet(
-  data: SheetsMemberData
+  data: SheetsMemberData,
+  contactType: "communication" | "commercial" = "communication"
 ): Promise<{ ok: boolean; error?: string }> {
   const creds = parseServiceAccountKey();
   if (!creds)
@@ -211,14 +218,15 @@ export async function appendRowToSheet(
     };
 
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-  const rangeA1 =
-    process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
+  const rangeA1 = contactType === "commercial"
+    ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
   try {
     const token = await getAccessToken(creds);
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? "Contacts").replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
       /^'|'$/g,
       ""
     );
@@ -260,7 +268,8 @@ export async function appendRowToSheet(
 
 export async function updateRowInSheet(
   memberId: string,
-  data: SheetsMemberData
+  data: SheetsMemberData,
+  contactType: "communication" | "commercial" = "communication"
 ): Promise<{ ok: boolean; error?: string }> {
   const creds = parseServiceAccountKey();
   if (!creds)
@@ -273,8 +282,9 @@ export async function updateRowInSheet(
     return { ok: false, error: "memberId invalide." };
 
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-  const rangeA1 =
-    process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
+  const rangeA1 = contactType === "commercial"
+    ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
@@ -285,7 +295,7 @@ export async function updateRowInSheet(
       return { ok: false, error: "Index de ligne invalide." };
 
     const sheetRowNum = rowIndex + 2;
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? "Contacts").replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
       /^'|'$/g,
       ""
     );
@@ -337,7 +347,8 @@ export async function updateRowInSheet(
 }
 
 export async function deleteRowInSheet(
-  memberId: string
+  memberId: string,
+  contactType: "communication" | "commercial" = "communication"
 ): Promise<{ ok: boolean; error?: string }> {
   const creds = parseServiceAccountKey();
   if (!creds)
@@ -350,8 +361,9 @@ export async function deleteRowInSheet(
     return { ok: false, error: "memberId invalide." };
 
   const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-  const rangeA1 =
-    process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
+  const rangeA1 = contactType === "commercial"
+    ? (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000")
+    : (process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000");
   if (!spreadsheetId)
     return { ok: false, error: "ID du tableur non configuré." };
 
@@ -362,7 +374,7 @@ export async function deleteRowInSheet(
       return { ok: false, error: "Index de ligne invalide." };
 
     const sheetRowNum = rowIndex + 2;
-    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? "Contacts").replace(
+    const sheetName = (rangeA1.match(/^([^!]+)!/)?.[1] ?? (contactType === "commercial" ? "Commercial" : "Communication")).replace(
       /^'|'$/g,
       ""
     );
@@ -377,12 +389,63 @@ export async function deleteRowInSheet(
     if (!sheetsRes.ok)
       throw new Error(`Lecture des feuilles échouée : ${sheetsRes.status}`);
     const sheetsData = await sheetsRes.json();
+    
+    // Normalize sheet name for comparison (trim and lowercase)
+    const normalizedSheetName = sheetName.trim().toLowerCase();
+    
+    // Debug: log all sheet names
+    const availableSheets = sheetsData.sheets?.map((s: { properties?: { title?: string } }) => s.properties?.title) || [];
+    console.log(`[DELETE] Recherche de la feuille "${sheetName}" (normalisé: "${normalizedSheetName}") parmi:`, availableSheets);
+    console.log(`[DELETE] contactType:`, contactType, `rangeA1:`, rangeA1);
+    
     const sheet = sheetsData.sheets?.find(
       (s: { properties?: { title?: string; sheetId?: number } }) =>
-        s.properties?.title === sheetName
+        s.properties?.title?.trim().toLowerCase() === normalizedSheetName
     );
-    if (!sheet?.properties?.sheetId)
-      throw new Error(`Feuille "${sheetName}" introuvable.`);
+    if (!sheet?.properties?.sheetId) {
+      const availableNames = availableSheets.join(", ");
+      throw new Error(`Feuille "${sheetName}" introuvable. Feuilles disponibles: ${availableNames}`);
+    }
+
+    // Vérifier s'il ne reste qu'une seule ligne de données
+    const dataRange = `${sheetName}!A:Z`;
+    const dataRes = await fetch(
+      `${SHEETS_API}/${spreadsheetId}/values/${encodeURIComponent(dataRange)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!dataRes.ok) {
+      throw new Error(`Lecture des données échouée : ${dataRes.status}`);
+    }
+    const dataJson = await dataRes.json();
+    const allRows = dataJson.values || [];
+    const totalRows = allRows.length;
+    const dataRowsCount = totalRows - 1; // Exclure l'en-tête
+    const isLastDataRow = dataRowsCount === 1 && sheetRowNum === 2;
+
+    if (isLastDataRow) {
+      // Au lieu de supprimer, vider la ligne pour éviter l'erreur Google Sheets
+      const rowRange = `${sheetName}!A${sheetRowNum}:Z${sheetRowNum}`;
+      const headerRow = allRows[0] || [];
+      const rowData = allRows[1] || [];
+      const emptyRow = Array(Math.max(headerRow.length, rowData.length)).fill("");
+
+      const updateRes = await fetch(
+        `${SHEETS_API}/${spreadsheetId}/values/${encodeURIComponent(rowRange)}?valueInputOption=USER_ENTERED`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ values: [emptyRow] }),
+        }
+      );
+      if (!updateRes.ok) {
+        const text = await updateRes.text();
+        throw new Error(`Vidage de la ligne échoué : ${updateRes.status} ${text}`);
+      }
+      return { ok: true };
+    }
 
     // Delete row using batchUpdate
     const batchUpdateRes = await fetch(

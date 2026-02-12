@@ -65,7 +65,27 @@ function getActiveCountryISOs(members: MemberLocation[]): Set<string> {
   const isos = new Set<string>();
   for (const m of members) {
     const iso = getISO3(m.pays);
-    if (iso) isos.add(iso);
+    if (iso) {
+      isos.add(iso);
+      // Debug: log USA specifically
+      if (iso === 'USA' || m.pays.toLowerCase().includes('états') || m.pays.toLowerCase().includes('usa')) {
+        console.log(`USA member found:`, {
+          pays: m.pays,
+          iso,
+          pseudo: m.pseudo,
+        });
+      }
+    } else {
+      // Debug: log when ISO3 is not found, especially for USA
+      if (m.pays.toLowerCase().includes('états') || m.pays.toLowerCase().includes('usa') || 
+          m.pays.toLowerCase().includes('united states')) {
+        console.warn(`ISO3 not found for country:`, {
+          pays: m.pays,
+          normalized: m.pays.trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, ""),
+          pseudo: m.pseudo,
+        });
+      }
+    }
   }
   return isos;
 }
@@ -256,10 +276,12 @@ function FlatMapInner({
       
       const featureISO3 = getFeatureISO3(feature);
       
-      // Debug: log Belgium specifically to see what's happening
+      // Debug: log Belgium and USA specifically to see what's happening
       const props = feature.properties || {};
       const name = props.name || props.NAME || props.NAME_EN || '';
-      if (name && (name.toLowerCase().includes('belgium') || name.toLowerCase().includes('belgique'))) {
+      const lowerName = name.toLowerCase();
+      
+      if (lowerName.includes('belgium') || lowerName.includes('belgique')) {
         console.log(`Belgium feature found:`, {
           id: feature.id,
           idType: typeof feature.id,
@@ -267,6 +289,21 @@ function FlatMapInner({
           props: feature.properties,
           isActive: featureISO3 && activeISOs.has(featureISO3),
           activeISOs: Array.from(activeISOs),
+        });
+      }
+      
+      // Debug: log USA specifically
+      if (lowerName.includes('united states') || lowerName.includes('usa') || 
+          featureISO3 === 'USA' || feature.id === '840' || feature.id === 840) {
+        console.log(`USA feature found:`, {
+          id: feature.id,
+          idType: typeof feature.id,
+          featureISO3,
+          name,
+          props: feature.properties,
+          isActive: featureISO3 && activeISOs.has(featureISO3),
+          activeISOs: Array.from(activeISOs),
+          activeISOsArray: Array.from(activeISOs),
         });
       }
       

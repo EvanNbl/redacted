@@ -62,6 +62,18 @@ export const FRENCH_TO_ISO3: Record<string, string> = {
   "eswatini": "SWZ",
   "estonie": "EST",
   "états-unis": "USA",
+  "etats-unis": "USA",
+  "etats unis": "USA",
+  "états unis": "USA",
+  "états-unis d'amerique": "USA",
+  "etats-unis d'amerique": "USA",
+  "états unis d'amerique": "USA",
+  "etats unis d'amerique": "USA",
+  "états-unis d'amérique": "USA",
+  "etats-unis d'amérique": "USA",
+  "usa": "USA",
+  "united states": "USA",
+  "united states of america": "USA",
   "éthiopie": "ETH",
   "fidji": "FJI",
   "finlande": "FIN",
@@ -193,12 +205,42 @@ function normalize(s: string): string {
 
 /** Retourne l'ISO3 pour un nom de pays français. */
 export function getISO3(paysName: string): string | undefined {
+  if (!paysName || typeof paysName !== "string") return undefined;
+  
   const key = normalize(paysName);
+  
   // Try exact match first
   if (FRENCH_TO_ISO3[key]) return FRENCH_TO_ISO3[key];
+  
   // Try with diacritics removed from the keys too
   for (const [k, v] of Object.entries(FRENCH_TO_ISO3)) {
     if (normalize(k) === key) return v;
   }
+  
+  // Special handling for common variations
+  // Remove common prefixes/suffixes and try again
+  let cleaned = key
+    .replace(/^les\s+/, "") // Remove "les " prefix
+    .replace(/\s+\(.*\)$/, "") // Remove parenthetical content
+    .trim();
+  
+  if (cleaned !== key && FRENCH_TO_ISO3[cleaned]) {
+    return FRENCH_TO_ISO3[cleaned];
+  }
+  
+  // Special case for "États-Unis d'Amérique" - try matching just "états-unis"
+  if (cleaned.includes("etats-unis") || cleaned.includes("états-unis")) {
+    // Try to match "états-unis" or "etats-unis" as base
+    const baseMatch = cleaned.match(/(états-unis|etats-unis)/);
+    if (baseMatch && FRENCH_TO_ISO3[baseMatch[1]]) {
+      return FRENCH_TO_ISO3[baseMatch[1]];
+    }
+    // Also try without the "d'amerique" part
+    const withoutSuffix = cleaned.replace(/\s+d'?amerique.*$/, "").trim();
+    if (withoutSuffix !== cleaned && FRENCH_TO_ISO3[withoutSuffix]) {
+      return FRENCH_TO_ISO3[withoutSuffix];
+    }
+  }
+  
   return undefined;
 }

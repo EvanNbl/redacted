@@ -7,6 +7,10 @@ import { enrichMembersWithNominatim } from "@/lib/geocode";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { LoadingScreen } from "@/components/LoadingScreen";
+import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
+import { CountryMultiSelect } from "@/components/CountryMultiSelect";
+import { ReferentMultiSelect } from "@/components/ReferentMultiSelect";
+import { PasswordGate } from "@/components/PasswordGate";
 import {
   isClientSheetsAvailable,
   appendRowToSheet,
@@ -51,21 +55,25 @@ import {
 type ContactsTable = { headers: string[]; rows: string[][] };
 
 interface Filters {
-  pays: string;
+  pays: string[]; // Tableau de pays sélectionnés
   nda: string;
-  referent: string;
-  langue: string;
+  referents: string[]; // Tableau de référents sélectionnés
+  langues: string[]; // Tableau de langues sélectionnées
 }
 
-const emptyFilters: Filters = { pays: "", nda: "", referent: "", langue: "" };
+const emptyFilters: Filters = { pays: [], nda: "", referents: [], langues: [] };
 
 /* ── Config ──────────────────────────────────────────────── */
 
 const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
 const SHEET_RANGE =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Contacts!A1:Z1000";
+  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Communication!A1:Z1000";
+const SHEET_RANGE_COM =
+  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000";
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
 const useClientApi = isClientSheetsAvailable();
+
+type ContactType = "communication" | "commercial";
 
 // Log pour debug en production
 if (typeof window !== "undefined") {
@@ -95,10 +103,11 @@ function applyFilters(
     );
   }
 
-  // Country filter
-  if (filters.pays) {
-    const p = filters.pays.toLowerCase();
-    result = result.filter((m) => m.pays?.toLowerCase() === p);
+  // Country filter (multiple countries)
+  if (filters.pays.length > 0) {
+    result = result.filter((m) =>
+      filters.pays.some((p) => m.pays?.toLowerCase() === p.toLowerCase())
+    );
   }
 
   // NDA filter
@@ -112,24 +121,28 @@ function applyFilters(
     );
   }
 
-  // Referent filter
-  if (filters.referent) {
-    result = result.filter(
-      (m) =>
-        (m.rawRow["Referent"] ?? m.rawRow["Référent"] ?? "")
-          .trim()
-          .toLowerCase() === filters.referent.toLowerCase()
-    );
+  // Referent filter (multiple referents)
+  if (filters.referents.length > 0) {
+    result = result.filter((m) => {
+      const memberReferent = (m.rawRow["Referent"] ?? m.rawRow["Référent"] ?? "")
+        .trim()
+        .toLowerCase();
+      return filters.referents.some(
+        (r) => memberReferent === r.toLowerCase()
+      );
+    });
   }
 
-  // Language filter
-  if (filters.langue) {
-    const l = filters.langue.trim().toLowerCase();
-    result = result.filter((m) =>
-      (m.rawRow["Langue(s) parlée(s)"] ?? m.rawRow["Langues"] ?? "")
-        .toLowerCase()
-        .includes(l)
-    );
+  // Language filter (multiple languages)
+  if (filters.langues.length > 0) {
+    result = result.filter((m) => {
+      const memberLangues = (m.rawRow["Langue(s) parlée(s)"] ?? m.rawRow["Langues"] ?? "")
+        .toLowerCase();
+      // Le membre doit avoir au moins une des langues sélectionnées
+      return filters.langues.some((langue) =>
+        memberLangues.includes(langue.toLowerCase())
+      );
+    });
   }
 
   return result;
@@ -166,6 +179,7 @@ export default function Home() {
   const [isTauri, setIsTauri] = useState(false);
   const [firstLoad, setFirstLoad] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [contactType, setContactType] = useState<ContactType>("communication");
 
   // Filters
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -197,9 +211,10 @@ export default function Home() {
     setError(null);
 
     try {
+      const range = contactType === "commercial" ? SHEET_RANGE_COM : SHEET_RANGE;
       const params = new URLSearchParams({ key: SHEET_API_KEY });
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
-        SHEET_RANGE
+        range
       )}?${params.toString()}`;
 
       const res = await fetch(url);
@@ -228,18 +243,28 @@ export default function Home() {
 
       const [headers, ...rows] = values;
       setData({ headers, rows });
-      setMembers(parseMembersFromTable(headers, rows));
+      setMembers(parseMembersFromTable(headers, rows, contactType));
     } catch (e) {
       console.error(e);
       setError("Impossible de charger les contacts depuis Google Sheets.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [contactType]);
 
   useEffect(() => {
     void loadFromSheet();
   }, [loadFromSheet]);
+
+  // Recharger les données quand le type de contact change
+  useEffect(() => {
+    setPanelOpen(false);
+    setSelectedMember(null);
+    setMembers([]); // Réinitialiser les membres pour éviter l'affichage des anciens membres
+    setSearchQuery(""); // Réinitialiser la recherche
+    setFilters(emptyFilters); // Réinitialiser les filtres
+    void loadFromSheet();
+  }, [contactType]);
 
   /* ── Enrichissement géocodage (ville/pays → coordonnées réelles) ── */
   const enrichingRef = useRef(false);
@@ -279,12 +304,29 @@ export default function Home() {
     [members]
   );
 
+  // Extraire toutes les langues uniques des membres
+  const uniqueLangues = useMemo(() => {
+    const languesSet = new Set<string>();
+    for (const m of members) {
+      const languesStr = m.rawRow["Langue(s) parlée(s)"] ?? m.rawRow["Langues"] ?? "";
+      if (languesStr.trim()) {
+        // Séparer les langues par virgule, point-virgule, ou autre séparateur
+        const langues = languesStr
+          .split(/[,;]/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0);
+        langues.forEach((langue) => languesSet.add(langue));
+      }
+    }
+    return Array.from(languesSet).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [members]);
+
   const activeFilterCount = useMemo(() => {
     let c = 0;
-    if (filters.pays) c++;
+    if (filters.pays.length > 0) c++;
     if (filters.nda) c++;
-    if (filters.referent) c++;
-    if (filters.langue) c++;
+    if (filters.referents.length > 0) c++;
+    if (filters.langues.length > 0) c++;
     return c;
   }, [filters]);
 
@@ -329,6 +371,8 @@ export default function Home() {
         try {
           const memberData = {
             pseudo: updated.pseudo,
+            prenom: updated.rawRow["Prénom"] ?? "",
+            nom: updated.rawRow["Nom"] ?? "",
             idDiscord: updated.rawRow["ID Discord"] ?? "",
             email: updated.rawRow["Email"] ?? "",
             pays: updated.pays,
@@ -344,7 +388,7 @@ export default function Home() {
 
           if (useClientApi) {
             // Client-side direct API call
-            const result = await updateRowInSheet(updated.id, memberData);
+            const result = await updateRowInSheet(updated.id, memberData, contactType);
             if (!result.ok) {
               setSaveError(
                 result.error ?? "Erreur lors de l'enregistrement."
@@ -358,6 +402,7 @@ export default function Home() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 memberId: updated.id,
+                contactType,
                 ...memberData,
               }),
             });
@@ -383,7 +428,7 @@ export default function Home() {
         );
       }
     },
-    []
+    [contactType]
   );
 
   const handleAddMember = useCallback(
@@ -393,6 +438,8 @@ export default function Home() {
       try {
         const memberData = {
           pseudo: newMember.pseudo,
+          prenom: newMember.rawRow["Prénom"] ?? "",
+          nom: newMember.rawRow["Nom"] ?? "",
           idDiscord: newMember.rawRow["ID Discord"] ?? "",
           email: newMember.rawRow["Email"] ?? "",
           pays: newMember.pays,
@@ -407,7 +454,7 @@ export default function Home() {
         };
 
         if (useClientApi) {
-          const result = await appendRowToSheet(memberData);
+          const result = await appendRowToSheet(memberData, contactType);
           if (!result.ok) {
             setSaveError(
               result.error ?? "Erreur lors de l'ajout au tableur."
@@ -418,7 +465,7 @@ export default function Home() {
           const res = await fetch("/api/sheets/append", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(memberData),
+            body: JSON.stringify({ ...memberData, contactType }),
           });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) {
@@ -435,7 +482,7 @@ export default function Home() {
         setSaving(false);
       }
     },
-    [loadFromSheet]
+    [loadFromSheet, contactType]
   );
 
   const handleDeleteMember = useCallback(
@@ -450,7 +497,7 @@ export default function Home() {
       setSaveError(null);
       try {
         if (useClientApi) {
-          const result = await deleteRowInSheet(member.id);
+          const result = await deleteRowInSheet(member.id, contactType);
           if (!result.ok) {
             setSaveError(
               result.error ?? "Erreur lors de la suppression."
@@ -461,15 +508,14 @@ export default function Home() {
           const res = await fetch("/api/sheets/delete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ memberId: member.id }),
+            body: JSON.stringify({ memberId: member.id, contactType }),
           });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) {
-            setSaveError(
-              json.error ??
-                `Erreur ${res.status} lors de la suppression.`
-            );
-            throw new Error(json.error);
+            const errorMsg = json.error ?? `Erreur ${res.status} lors de la suppression.`;
+            console.error("[DELETE] Erreur serveur:", json);
+            setSaveError(errorMsg);
+            throw new Error(errorMsg);
           }
         }
 
@@ -478,7 +524,7 @@ export default function Home() {
         setDeleting(false);
       }
     },
-    [loadFromSheet]
+    [loadFromSheet, contactType]
   );
 
   const clearFilters = useCallback(() => {
@@ -497,7 +543,8 @@ export default function Home() {
   /* ── Render ───────────────────────────────────────────── */
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#07070b] text-zinc-100">
+    <PasswordGate>
+      <div className="flex h-screen flex-col overflow-hidden bg-[#07070b] text-zinc-100">
       {/* Loading Screen */}
       <LoadingScreen loading={loading && firstLoad} onFinished={handleLoadingFinished} />
 
@@ -525,6 +572,30 @@ export default function Home() {
             <span className="hidden text-sm font-semibold tracking-tight text-white sm:inline">
               Contacts Map
             </span>
+          </div>
+
+          {/* Contact type switch */}
+          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-1">
+            <button
+              onClick={() => setContactType("communication")}
+              className={`px-3 py-1 text-xs font-medium transition-colors rounded ${
+                contactType === "communication"
+                  ? "bg-violet-600 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Communication
+            </button>
+            <button
+              onClick={() => setContactType("commercial")}
+              className={`px-3 py-1 text-xs font-medium transition-colors rounded ${
+                contactType === "commercial"
+                  ? "bg-violet-600 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Commercial
+            </button>
           </div>
 
           {/* Spacer */}
@@ -650,20 +721,16 @@ export default function Home() {
                 <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                   Pays
                 </label>
-                <select
-                  value={filters.pays}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, pays: e.target.value }))
-                  }
-                  className={selectCls}
-                >
-                  <option value="">Tous</option>
-                  {uniqueCountries.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                <div className="w-48">
+                  <CountryMultiSelect
+                    selected={filters.pays}
+                    onChange={(selected) =>
+                      setFilters((f) => ({ ...f, pays: selected }))
+                    }
+                    options={uniqueCountries}
+                    placeholder="Sélectionner des pays"
+                  />
+                </div>
               </div>
 
               <div className="space-y-0.5">
@@ -687,35 +754,36 @@ export default function Home() {
                 <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                   Referent
                 </label>
-                <select
-                  value={filters.referent}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, referent: e.target.value }))
-                  }
-                  className={selectCls}
-                >
-                  <option value="">Tous</option>
-                  {uniqueReferents.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+                <div className="w-48">
+                  <ReferentMultiSelect
+                    selected={filters.referents}
+                    onChange={(selected) =>
+                      setFilters((f) => ({ ...f, referents: selected }))
+                    }
+                    options={uniqueReferents}
+                    placeholder="Sélectionner des référents"
+                  />
+                </div>
               </div>
 
               <div className="space-y-0.5">
                 <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                  Langue
+                  Langue(s)
                 </label>
-                <Input
-                  type="text"
-                  value={filters.langue}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, langue: e.target.value }))
-                  }
-                  placeholder="ex. Français"
-                  className="h-8 w-28 border-white/10 bg-white/[0.04] text-xs text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40"
-                />
+                <div className="w-48">
+                  <LanguageMultiSelect
+                    value={filters.langues.join(", ")}
+                    onChange={(value) => {
+                      // Convertir la chaîne séparée par virgules en tableau
+                      const languesArray = value
+                        .split(",")
+                        .map((l) => l.trim())
+                        .filter((l) => l.length > 0);
+                      setFilters((f) => ({ ...f, langues: languesArray }));
+                    }}
+                    placeholder="Sélectionner des langues"
+                  />
+                </div>
               </div>
 
               {activeFilterCount > 0 && (
@@ -898,6 +966,7 @@ export default function Home() {
             saveError={saveError}
             saving={saving}
             deleting={deleting}
+            contactType={contactType}
           />
 
           {/* Loading overlay (after first load) */}
@@ -914,5 +983,6 @@ export default function Home() {
         </main>
       </div>
     </div>
+    </PasswordGate>
   );
 }

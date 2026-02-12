@@ -42,6 +42,7 @@ export interface MemberDetailPanelProps {
   saveError?: string | null;
   saving?: boolean;
   deleting?: boolean;
+  contactType?: "communication" | "commercial";
 }
 
 function getFromRawRow(
@@ -59,6 +60,8 @@ function getFromRawRow(
 
 const RAW_ROW_KEYS = {
   pseudo: ["Pseudo"],
+  prenom: ["Prénom", "Prenom"],
+  nom: ["Nom"],
   idDiscord: ["ID Discord", "Discord"],
   email: ["Email", "E-mail"],
   pays: ["Pays"],
@@ -72,6 +75,8 @@ const RAW_ROW_KEYS = {
 
 const emptyForm = {
   pseudo: "",
+  prenom: "",
+  nom: "",
   idDiscord: "",
   email: "",
   pays: "",
@@ -105,6 +110,7 @@ export function MemberDetailPanel({
   saveError = null,
   saving = false,
   deleting = false,
+  contactType = "communication",
 }: MemberDetailPanelProps) {
   const isNew = member === null;
   const [form, setForm] = useState(emptyForm);
@@ -122,6 +128,8 @@ export function MemberDetailPanel({
       setForm({
         pseudo:
           member.pseudo || getFromRawRow(raw, [...RAW_ROW_KEYS.pseudo]),
+        prenom: getFromRawRow(raw, [...RAW_ROW_KEYS.prenom]),
+        nom: getFromRawRow(raw, [...RAW_ROW_KEYS.nom]),
         idDiscord: getFromRawRow(raw, [...RAW_ROW_KEYS.idDiscord]),
         email: getFromRawRow(raw, [...RAW_ROW_KEYS.email]),
         pays: member.pays || getFromRawRow(raw, [...RAW_ROW_KEYS.pays]),
@@ -185,6 +193,22 @@ export function MemberDetailPanel({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validation pour les commerciaux : au moins Prénom ou Nom doit être rempli si pas de pseudo
+    if (contactType === "commercial") {
+      const hasPseudo = form.pseudo.trim().length > 0;
+      const hasPrenomOrNom = form.prenom.trim().length > 0 || form.nom.trim().length > 0;
+      if (!hasPseudo && !hasPrenomOrNom) {
+        setCoordsError("Pour les commerciaux, veuillez remplir au moins le Prénom ou le Nom (ou le Pseudo).");
+        return;
+      }
+    } else {
+      // Pour les contacts communication, le pseudo est obligatoire
+      if (!form.pseudo.trim()) {
+        setCoordsError("Le pseudo est obligatoire.");
+        return;
+      }
+    }
+
     if (!form.pays.trim()) {
       setCoordsError("Le pays est obligatoire.");
       return;
@@ -222,7 +246,18 @@ export function MemberDetailPanel({
     setCoordsError(null);
 
     const rawRow: Record<string, string> = { ...(member?.rawRow ?? {}) };
-    rawRow["Pseudo"] = form.pseudo.trim();
+    
+    // Pour les commerciaux, construire le pseudo à partir de Prénom et Nom si nécessaire
+    let finalPseudo = form.pseudo.trim();
+    if (contactType === "commercial") {
+      rawRow["Prénom"] = form.prenom.trim();
+      rawRow["Nom"] = form.nom.trim();
+      // Si pas de pseudo mais Prénom ou Nom remplis, construire le pseudo
+      if (!finalPseudo && (form.prenom.trim() || form.nom.trim())) {
+        finalPseudo = [form.prenom.trim(), form.nom.trim()].filter(Boolean).join(" ").trim();
+      }
+    }
+    rawRow["Pseudo"] = finalPseudo;
     rawRow["ID Discord"] = form.idDiscord.trim();
     rawRow["Email"] = form.email.trim();
     rawRow["Pays"] = form.pays.trim();
@@ -252,7 +287,7 @@ export function MemberDetailPanel({
 
     const updated: MemberLocation = {
       id: member?.id ?? `local-${Date.now()}`,
-      pseudo: form.pseudo.trim(),
+      pseudo: finalPseudo || form.pseudo.trim(),
       pays: form.pays.trim(),
       region: form.region.trim(),
       ville: form.ville.trim(),
@@ -318,11 +353,46 @@ export function MemberDetailPanel({
 
   const handleReseauxSelectionChange = (selected: string[]) => {
     setReseauxSelectionnes(selected);
-    // Ajouter les nouveaux réseaux sélectionnés qui ne sont pas encore dans reseaux
-    selected.forEach((reseau) => {
-      if (!reseaux[reseau]) {
-        handleAddReseau(reseau as ReseauSocial);
-      }
+    
+    setReseaux((prev) => {
+      const newReseaux = { ...prev };
+      
+      // Supprimer les réseaux qui ne sont plus sélectionnés
+      const reseauxASupprimer = reseauxSelectionnes.filter(
+        (reseau) => !selected.includes(reseau)
+      );
+      
+      reseauxASupprimer.forEach((reseau) => {
+        if (reseau === "Autre") {
+          // Pour "Autre", supprimer tous les "Autre X"
+          Object.keys(newReseaux)
+            .filter((key) => key.startsWith("Autre "))
+            .forEach((key) => delete newReseaux[key]);
+        } else {
+          // Pour les autres réseaux, supprimer directement
+          delete newReseaux[reseau];
+        }
+      });
+      
+      // Ajouter les nouveaux réseaux sélectionnés qui ne sont pas encore dans reseaux
+      selected.forEach((reseau) => {
+        if (!newReseaux[reseau]) {
+          if (reseau === "Autre") {
+            // Pour "Autre", trouver le prochain numéro disponible
+            const autresKeys = Object.keys(newReseaux).filter((k) => k.startsWith("Autre "));
+            let num = 1;
+            while (newReseaux[`Autre ${num}`]) {
+              num++;
+            }
+            newReseaux[`Autre ${num}`] = "";
+          } else {
+            // Pour les autres réseaux, ajouter directement
+            newReseaux[reseau] = "";
+          }
+        }
+      });
+      
+      return newReseaux;
     });
   };
 
@@ -461,10 +531,44 @@ export function MemberDetailPanel({
                 <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
                   Identité
                 </legend>
+                {contactType === "commercial" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="panel-prenom" className={fieldLabel}>
+                        Prénom
+                      </label>
+                      <Input
+                        id="panel-prenom"
+                        type="text"
+                        value={form.prenom}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, prenom: e.target.value }))
+                        }
+                        className={inputClass}
+                        placeholder="Prénom"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="panel-nom" className={fieldLabel}>
+                        Nom
+                      </label>
+                      <Input
+                        id="panel-nom"
+                        type="text"
+                        value={form.nom}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, nom: e.target.value }))
+                        }
+                        className={inputClass}
+                        placeholder="Nom"
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label htmlFor="panel-pseudo" className={fieldLabel}>
-                      Pseudo
+                      {contactType === "commercial" ? "Pseudo" : "Pseudo"}
                     </label>
                     <Input
                       id="panel-pseudo"
@@ -474,7 +578,7 @@ export function MemberDetailPanel({
                         setForm((f) => ({ ...f, pseudo: e.target.value }))
                       }
                       className={inputClass}
-                      placeholder="Nom ou pseudo"
+                      placeholder={contactType === "commercial" ? "Pseudo (optionnel)" : "Nom ou pseudo"}
                     />
                   </div>
                   <div className="space-y-1">
