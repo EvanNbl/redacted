@@ -9,7 +9,8 @@ mod updater_cmd {
     
     // Fonction helper pour obtenir le token GitHub
     fn get_github_token() -> Option<String> {
-        // 1. Token compilé dans le binaire (si disponible au moment du build)
+        // 1. Token compilé dans le binaire via build.rs (si disponible au moment du build)
+        // Cela fonctionne en production car le token est injecté dans le binaire lors de la compilation
         option_env!("TAURI_UPDATE_TOKEN")
             .map(String::from)
             // 2. Variable d'environnement au runtime (pour le dev local)
