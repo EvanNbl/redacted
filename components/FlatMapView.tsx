@@ -127,6 +127,7 @@ export interface FlatMapViewProps {
   className?: string;
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
+  focusMemberId?: string | null;
 }
 
 export function FlatMapView({
@@ -134,6 +135,7 @@ export function FlatMapView({
   className = "",
   onMemberClick,
   onMapClick,
+  focusMemberId,
 }: FlatMapViewProps) {
   const [MapComponent, setMapComponent] = useState<React.ComponentType<
     FlatMapViewProps
@@ -159,6 +161,7 @@ export function FlatMapView({
       className={className}
       onMemberClick={onMemberClick}
       onMapClick={onMapClick}
+      focusMemberId={focusMemberId}
     />
   );
 }
@@ -168,6 +171,7 @@ function FlatMapInner({
   className = "",
   onMemberClick,
   onMapClick,
+  focusMemberId,
 }: FlatMapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -176,7 +180,8 @@ function FlatMapInner({
   const onMemberClickRef = useRef(onMemberClick);
   const onMapClickRef = useRef(onMapClick);
   const membersRef = useRef(members);
-  const colorCountriesRef = useRef<(() => void) | null>(null);
+  const colorCountriesRef = useRef<((members: MemberLocation[]) => void) | null>(null);
+  const prevFocusMemberIdRef = useRef<string | null | undefined>(null);
 
   useEffect(() => {
     onMemberClickRef.current = onMemberClick;
@@ -233,11 +238,11 @@ function FlatMapInner({
   }, []);
 
   // Function to color countries based on active members
-  const colorCountries = useCallback(() => {
+  const colorCountries = useCallback((membersToUse: MemberLocation[]) => {
     const geoLayer = countryLayerRef.current;
     if (!geoLayer) return;
     
-    const activeISOs = getActiveCountryISOs(membersRef.current);
+    const activeISOs = getActiveCountryISOs(membersToUse);
     
     // Debug: log active ISOs
     if (activeISOs.size > 0) {
@@ -287,7 +292,7 @@ function FlatMapInner({
   }, [getFeatureISO3]);
 
   useEffect(() => {
-    colorCountriesRef.current = colorCountries;
+    colorCountriesRef.current = (membersToUse: MemberLocation[]) => colorCountries(membersToUse);
   }, [colorCountries]);
 
   // Initialize map (once)
@@ -375,7 +380,7 @@ function FlatMapInner({
       geoLayer.bringToBack();
       countryLayerRef.current = geoLayer;
       // Color countries once GeoJSON is loaded
-      colorCountriesRef.current?.();
+      colorCountriesRef.current?.(membersRef.current);
     });
 
     return () => {
@@ -396,7 +401,7 @@ function FlatMapInner({
     cluster.clearLayers();
 
     // ── Color countries with members ──
-    colorCountries();
+    colorCountries(members);
 
     // ── Markers with full name ──
     const markers: L.Marker[] = [];
@@ -430,6 +435,25 @@ function FlatMapInner({
       map.fitBounds(bounds.pad(0.2), { maxZoom: 6 });
     }
   }, [members, colorCountries]);
+
+  // Focus on specific member when focusMemberId changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !focusMemberId || focusMemberId === prevFocusMemberIdRef.current) {
+      prevFocusMemberIdRef.current = focusMemberId;
+      return;
+    }
+
+    const member = members.find((m) => m.id === focusMemberId);
+    if (member) {
+      const [lat, lon] = normalizeCoords(member.latitude, member.longitude);
+      map.setView([lat, lon], 8, {
+        animate: true,
+        duration: 0.5,
+      });
+    }
+    prevFocusMemberIdRef.current = focusMemberId;
+  }, [focusMemberId, members]);
 
   return (
     <div ref={mapRef} className={`h-full w-full bg-zinc-900 ${className}`} />

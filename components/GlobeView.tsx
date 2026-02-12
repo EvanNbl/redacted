@@ -130,6 +130,8 @@ function MemberMarker({
   onClick: (member: MemberLocation) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const groupRef = useRef<THREE.Group>(null);
+  const targetScale = useRef(1.0);
 
   const handleClick = useCallback(
     (e: { stopPropagation: () => void }) => {
@@ -141,54 +143,96 @@ function MemberMarker({
 
   const onPointerOver = useCallback(() => {
     setHovered(true);
+    targetScale.current = 1.3;
     document.body.style.cursor = "pointer";
   }, []);
   const onPointerOut = useCallback(() => {
     setHovered(false);
+    targetScale.current = 1.0;
     document.body.style.cursor = "default";
   }, []);
+
+  // Smooth scale animation
+  useFrame(() => {
+    if (groupRef.current) {
+      const currentScale = groupRef.current.scale.x;
+      const diff = targetScale.current - currentScale;
+      if (Math.abs(diff) > 0.01) {
+        groupRef.current.scale.setScalar(
+          currentScale + diff * 0.15 // Smooth interpolation
+        );
+      } else {
+        groupRef.current.scale.setScalar(targetScale.current);
+      }
+    }
+  });
 
   if (!visible) return null;
 
   return (
     <group
+      ref={groupRef}
       position={position}
       onClick={handleClick}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
     >
+      {/* Outer glow shadow - matches box-shadow from flat map */}
       <mesh>
-        <sphereGeometry args={[0.006, 6, 6]} />
+        <sphereGeometry args={[0.008, 16, 16]} />
         <meshBasicMaterial
-          color="#a78bfa"
+          color="#8b5cf6"
           transparent
-          opacity={0.4}
+          opacity={0.6}
           depthWrite={false}
         />
       </mesh>
+      {/* Outer ring - matches the 2px border from flat map */}
       <mesh>
-        <sphereGeometry args={[0.003, 6, 6]} />
-        <meshBasicMaterial color="#e9d5ff" />
+        <sphereGeometry args={[0.0065, 16, 16]} />
+        <meshBasicMaterial
+          color="#8b5cf6"
+          transparent
+          opacity={0.25}
+          depthWrite={false}
+        />
       </mesh>
-      {/* Nom affiché uniquement au survol pour éviter les chevauchements */}
-      {hovered && (
-        <Html
-          position={[0, 0.02, 0]}
-          center
-          distanceFactor={6}
-          occlude={false}
-          zIndexRange={[100, 0]}
-          style={{
-            pointerEvents: "none",
-            userSelect: "none",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <div className="globe-label globe-label-small">
-            {member.pseudo}
-          </div>
-        </Html>
-      )}
+      {/* Main dot with gradient effect - inner part (darker purple) */}
+      <mesh>
+        <sphereGeometry args={[0.005, 16, 16]} />
+        <meshBasicMaterial color="#6d28d9" />
+      </mesh>
+      {/* Middle gradient layer */}
+      <mesh>
+        <sphereGeometry args={[0.0045, 16, 16]} />
+        <meshBasicMaterial
+          color="#8b5cf6"
+          transparent
+          opacity={0.7}
+        />
+      </mesh>
+      {/* Inner highlight - matches radial gradient highlight */}
+      <mesh>
+        <sphereGeometry args={[0.003, 16, 16]} />
+        <meshBasicMaterial color="#c4b5fd" />
+      </mesh>
+      {/* Nom affiché en permanence */}
+      <Html
+        position={[0, 0.02, 0]}
+        center
+        distanceFactor={2.5}
+        occlude={false}
+        zIndexRange={[100, 0]}
+        style={{
+          pointerEvents: "none",
+          userSelect: "none",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <div className="text-[5px] font-medium text-white">
+          {member.pseudo}
+        </div>
+      </Html>
     </group>
   );
 }
@@ -209,12 +253,24 @@ function GlobeScene({
   members,
   onMemberClick,
   onMapClick,
+  focusMemberId,
 }: {
   members: MemberLocation[];
   onMemberClick: (member: MemberLocation) => void;
   onMapClick?: () => void;
+  focusMemberId?: string | null;
 }) {
   const { camera } = useThree();
+  const controlsRef = useRef<any>(null);
+  const prevFocusMemberIdRef = useRef<string | null | undefined>(null);
+  const animationTargetRef = useRef<{
+    cameraPos: THREE.Vector3;
+    target: THREE.Vector3;
+    startPos: THREE.Vector3;
+    startTarget: THREE.Vector3;
+    progress: number;
+  } | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
   const positions = useMemo(
     () =>
       members.map((m) =>
@@ -239,12 +295,82 @@ function GlobeScene({
     });
     prevRef.current = next;
     if (changed) setVisible(next);
+
+    // Animate camera to focus target
+    if (animationTargetRef.current && controlsRef.current) {
+      const anim = animationTargetRef.current;
+      anim.progress += 0.05;
+      
+      if (anim.progress >= 1) {
+        camera.position.copy(anim.cameraPos);
+        controlsRef.current.target.copy(anim.target);
+        controlsRef.current.update();
+        animationTargetRef.current = null;
+        setIsAnimating(false);
+      } else {
+        camera.position.lerpVectors(anim.startPos, anim.cameraPos, anim.progress);
+        controlsRef.current.target.lerpVectors(anim.startTarget, anim.target, anim.progress);
+        controlsRef.current.update();
+      }
+    }
   });
 
   // Click on the globe (earth mesh) itself → close panel
   const handleEarthClick = useCallback(() => {
     onMapClick?.();
   }, [onMapClick]);
+
+  // Focus on specific member when focusMemberId changes
+  useEffect(() => {
+    if (!controlsRef.current) return;
+
+    // Si focusMemberId n'a pas changé, ne rien faire
+    if (focusMemberId === prevFocusMemberIdRef.current) {
+      return;
+    }
+
+    // Si focusMemberId devient null, remettre à la position par défaut
+    if (!focusMemberId) {
+      const defaultCameraPos = new THREE.Vector3(0, 0, 5);
+      const defaultTarget = new THREE.Vector3(0, 0, 0);
+      
+      setIsAnimating(true);
+      animationTargetRef.current = {
+        cameraPos: defaultCameraPos,
+        target: defaultTarget,
+        startPos: camera.position.clone(),
+        startTarget: controlsRef.current.target.clone(),
+        progress: 0,
+      };
+      prevFocusMemberIdRef.current = focusMemberId;
+      return;
+    }
+
+    // Sinon, focus sur le membre sélectionné
+    const member = members.find((m) => m.id === focusMemberId);
+    if (member && controlsRef.current) {
+      // Position du membre sur la sphère (rayon 1)
+      const [x, y, z] = latLonToPosition(member.latitude, member.longitude, 1);
+      const target = new THREE.Vector3(x, y, z);
+      
+      // Calculer la position de la caméra pour regarder le point
+      // On veut que la caméra soit à une distance confortable et regarde le point
+      const direction = target.clone().normalize();
+      const distance = 2.5;
+      const cameraPos = direction.multiplyScalar(distance);
+      
+      // Démarrer l'animation
+      setIsAnimating(true);
+      animationTargetRef.current = {
+        cameraPos,
+        target,
+        startPos: camera.position.clone(),
+        startTarget: controlsRef.current.target.clone(),
+        progress: 0,
+      };
+    }
+    prevFocusMemberIdRef.current = focusMemberId;
+  }, [focusMemberId, members, camera]);
 
   return (
     <>
@@ -275,11 +401,12 @@ function GlobeScene({
       </GlobeErrorBoundary>
 
       <OrbitControls
+        ref={controlsRef}
         enableZoom
         enablePan={false}
         minDistance={1.5}
         maxDistance={5}
-        autoRotate
+        autoRotate={!isAnimating}
         autoRotateSpeed={0.2}
       />
     </>
@@ -293,6 +420,7 @@ export interface GlobeViewProps {
   className?: string;
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
+  focusMemberId?: string | null;
 }
 
 export function GlobeView({
@@ -300,6 +428,7 @@ export function GlobeView({
   className = "",
   onMemberClick = () => {},
   onMapClick,
+  focusMemberId,
 }: GlobeViewProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -353,6 +482,7 @@ export function GlobeView({
             members={members}
             onMemberClick={onMemberClick}
             onMapClick={onMapClick}
+            focusMemberId={focusMemberId}
           />
         </Suspense>
       </Canvas>

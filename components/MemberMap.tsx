@@ -13,6 +13,7 @@ export interface MemberMapProps {
   className?: string;
   onMemberClick?: (member: MemberLocation) => void;
   onMapClick?: () => void;
+  focusMemberId?: string | null;
 }
 
 export function MemberMap({
@@ -20,6 +21,7 @@ export function MemberMap({
   className = "",
   onMemberClick,
   onMapClick,
+  focusMemberId,
 }: MemberMapProps) {
   const [mode, setMode] = useState<MapMode>("flat");
 
@@ -67,6 +69,7 @@ export function MemberMap({
           className="absolute inset-0 z-0 rounded-lg"
           onMemberClick={onMemberClick}
           onMapClick={onMapClick}
+          focusMemberId={focusMemberId}
         />
       ) : (
         <FlatMapView
@@ -74,6 +77,7 @@ export function MemberMap({
           className="absolute inset-0 z-0 rounded-lg"
           onMemberClick={onMemberClick}
           onMapClick={onMapClick}
+          focusMemberId={focusMemberId}
         />
       )}
     </div>

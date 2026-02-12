@@ -45,6 +45,7 @@ function getFromRawRow(
 const RAW_ROW_KEYS = {
   pseudo: ["Pseudo"],
   idDiscord: ["ID Discord", "Discord"],
+  email: ["Email", "E-mail"],
   pays: ["Pays"],
   region: ["Region/Etat", "Région", "Region/État"],
   ville: ["Ville"],
@@ -57,6 +58,7 @@ const RAW_ROW_KEYS = {
 const emptyForm = {
   pseudo: "",
   idDiscord: "",
+  email: "",
   pays: "",
   region: "",
   ville: "",
@@ -104,6 +106,7 @@ export function MemberDetailPanel({
         pseudo:
           member.pseudo || getFromRawRow(raw, [...RAW_ROW_KEYS.pseudo]),
         idDiscord: getFromRawRow(raw, [...RAW_ROW_KEYS.idDiscord]),
+        email: getFromRawRow(raw, [...RAW_ROW_KEYS.email]),
         pays: member.pays || getFromRawRow(raw, [...RAW_ROW_KEYS.pays]),
         region:
           member.region || getFromRawRow(raw, [...RAW_ROW_KEYS.region]),
@@ -166,6 +169,7 @@ export function MemberDetailPanel({
     const rawRow: Record<string, string> = { ...(member?.rawRow ?? {}) };
     rawRow["Pseudo"] = form.pseudo.trim();
     rawRow["ID Discord"] = form.idDiscord.trim();
+    rawRow["Email"] = form.email.trim();
     rawRow["Pays"] = form.pays.trim();
     rawRow["Region/Etat"] = form.region.trim();
     rawRow["Ville"] = form.ville.trim();
@@ -303,6 +307,24 @@ export function MemberDetailPanel({
                       placeholder="Optionnel"
                     />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="panel-email" className={fieldLabel}>
+                    Email
+                  </label>
+                  <Input
+                    id="panel-email"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        email: e.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                    placeholder="exemple@email.com"
+                  />
                 </div>
               </fieldset>
 

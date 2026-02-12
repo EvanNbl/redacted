@@ -5,6 +5,7 @@ import { google } from "googleapis";
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
   idDiscord: ["id discord", "discord"],
+  email: ["email", "e-mail"],
   pays: ["pays"],
   ville: ["ville"],
   region: ["region", "region/etat", "région", "region/état"],
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       ville = "",
       region = "",
       idDiscord = "",
+      email = "",
       langues = "",
       ndaSignee = "",
       referent = "",
@@ -58,6 +60,7 @@ export async function POST(request: Request) {
       ville?: string;
       region?: string;
       idDiscord?: string;
+      email?: string;
       langues?: string;
       ndaSignee?: string;
       referent?: string;
@@ -142,6 +145,7 @@ export async function POST(request: Request) {
 
     const pseudoCol = findColumnIndex(indices, HEADER_ALIASES.pseudo);
     const idDiscordCol = findColumnIndex(indices, HEADER_ALIASES.idDiscord);
+    const emailCol = findColumnIndex(indices, HEADER_ALIASES.email);
     const paysCol = findColumnIndex(indices, HEADER_ALIASES.pays);
     const villeCol = findColumnIndex(indices, HEADER_ALIASES.ville);
     const regionCol = findColumnIndex(indices, HEADER_ALIASES.region);
@@ -157,6 +161,7 @@ export async function POST(request: Request) {
 
     if (pseudoCol >= 0) newRow[pseudoCol] = String(pseudo ?? "").trim();
     if (idDiscordCol >= 0) newRow[idDiscordCol] = String(idDiscord ?? "").trim();
+    if (emailCol >= 0) newRow[emailCol] = String(email ?? "").trim();
     if (paysCol >= 0) newRow[paysCol] = String(pays ?? "").trim();
     if (villeCol >= 0) newRow[villeCol] = String(ville ?? "").trim();
     if (regionCol >= 0) newRow[regionCol] = String(region ?? "").trim();

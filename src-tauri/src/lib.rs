@@ -6,6 +6,16 @@ mod updater_cmd {
 
     const GITHUB_API_LATEST: &str =
         "https://api.github.com/repos/EvanNbl/redacted/releases/latest";
+    
+    // Fonction helper pour obtenir le token GitHub
+    fn get_github_token() -> Option<String> {
+        // 1. Token compilé dans le binaire (si disponible au moment du build)
+        option_env!("TAURI_UPDATE_TOKEN")
+            .map(String::from)
+            // 2. Variable d'environnement au runtime (pour le dev local)
+            .or_else(|| std::env::var("TAURI_UPDATE_TOKEN").ok())
+            .or_else(|| std::env::var("GITHUB_TOKEN").ok())
+    }
 
     #[derive(Debug, Serialize)]
     pub struct AppVersions {
@@ -39,10 +49,7 @@ mod updater_cmd {
             },
         };
         // Token pour dépôt privé (même que pour le téléchargement des mises à jour)
-        let token = option_env!("TAURI_UPDATE_TOKEN")
-            .map(String::from)
-            .or_else(|| std::env::var("GITHUB_TOKEN").ok())
-            .or_else(|| std::env::var("TAURI_UPDATE_TOKEN").ok());
+        let token = get_github_token();
         let mut request = client.get(GITHUB_API_LATEST);
         if let Some(t) = &token {
             request = request.header("Authorization", format!("Bearer {}", t));
@@ -63,7 +70,18 @@ mod updater_cmd {
             .as_ref()
             .and_then(|j| j.get("tag_name").or_else(|| j.get("name")))
             .and_then(|v| v.as_str())
-            .map(|s| s.trim_start_matches('v').to_string());
+            .map(|s| {
+                // Supprimer les préfixes courants : "app-v", "app-", "v"
+                let mut cleaned = s.to_string();
+                if cleaned.starts_with("app-v") {
+                    cleaned = cleaned.strip_prefix("app-v").unwrap_or(&cleaned).to_string();
+                } else if cleaned.starts_with("app-") {
+                    cleaned = cleaned.strip_prefix("app-").unwrap_or(&cleaned).to_string();
+                } else if cleaned.starts_with('v') {
+                    cleaned = cleaned.strip_prefix('v').unwrap_or(&cleaned).to_string();
+                }
+                cleaned
+            });
         let latest_notes = json
             .as_ref()
             .and_then(|j| j.get("body"))

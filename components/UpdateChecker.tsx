@@ -23,8 +23,11 @@ type UpdateStatus =
 
 /** Compare deux versions semver. Retourne true si remote > local. */
 function isNewerVersion(remote: string, local: string): boolean {
-  const r = remote.replace(/^v/, "").split(".").map(Number);
-  const l = local.replace(/^v/, "").split(".").map(Number);
+  // Supprimer les préfixes courants : "app-v", "app-", "v"
+  const cleanRemote = remote.replace(/^(app-v|app-|v)/, "");
+  const cleanLocal = local.replace(/^(app-v|app-|v)/, "");
+  const r = cleanRemote.split(".").map(Number);
+  const l = cleanLocal.split(".").map(Number);
   for (let i = 0; i < Math.max(r.length, l.length); i++) {
     const rv = r[i] ?? 0;
     const lv = l[i] ?? 0;

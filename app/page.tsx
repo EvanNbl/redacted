@@ -330,6 +330,7 @@ export default function Home() {
           const memberData = {
             pseudo: updated.pseudo,
             idDiscord: updated.rawRow["ID Discord"] ?? "",
+            email: updated.rawRow["Email"] ?? "",
             pays: updated.pays,
             ville: updated.ville,
             region: updated.region,
@@ -393,6 +394,7 @@ export default function Home() {
         const memberData = {
           pseudo: newMember.pseudo,
           idDiscord: newMember.rawRow["ID Discord"] ?? "",
+          email: newMember.rawRow["Email"] ?? "",
           pays: newMember.pays,
           ville: newMember.ville,
           region: newMember.region,
@@ -880,6 +882,7 @@ export default function Home() {
                 className="h-full w-full"
                 onMemberClick={handleMemberClick}
                 onMapClick={handleMapClick}
+                focusMemberId={selectedMember?.id ?? null}
               />
             </section>
           )}
