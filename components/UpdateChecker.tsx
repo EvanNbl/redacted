@@ -61,38 +61,21 @@ export function UpdateChecker() {
 
   /* ─── Vérification via commande Tauri (get_app_versions = API GitHub côté Rust) ─── */
   const checkForUpdate = useCallback(async () => {
-    console.log("[UpdateChecker] Début de checkForUpdate");
-    if (typeof window === "undefined") {
-      console.warn("[UpdateChecker] window est undefined");
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     try {
       const tauri = (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
-      if (!tauri) {
-        console.warn("[UpdateChecker] Tauri internals non disponibles");
-        return;
-      }
+      if (!tauri) return;
 
-      console.log("[UpdateChecker] Tauri disponible, démarrage de la vérification...");
       setStatus({ state: "checking" });
 
       const { invoke } = await import("@tauri-apps/api/core");
-      console.log("[UpdateChecker] Invocation de get_app_versions...");
-      
       const v = (await invoke("get_app_versions", {})) as {
         current: string;
         latest: string | null;
         latest_notes: string | null;
         api_error?: string | null;
       };
-
-      console.log("[UpdateChecker] Réponse reçue:", {
-        current: v.current,
-        latest: v.latest,
-        has_notes: !!v.latest_notes,
-        api_error: v.api_error,
-      });
 
       setCurrentVersion(v.current);
 
@@ -104,8 +87,7 @@ export function UpdateChecker() {
         githubVersion
       );
       if (v.api_error) {
-        console.error("[Projet Paris] API GitHub - Erreur détaillée:", v.api_error);
-        console.error("[Projet Paris] Détails complets de la réponse:", JSON.stringify(v, null, 2));
+        console.warn("[Projet Paris] API GitHub:", v.api_error);
       }
 
       if (!v.latest) {
