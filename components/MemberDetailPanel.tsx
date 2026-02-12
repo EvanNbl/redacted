@@ -14,6 +14,7 @@ import {
 } from "@/components/AddressAutocomplete";
 import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
 import { ReseauMultiSelect } from "@/components/ReseauMultiSelect";
+import { CountrySelect } from "@/components/CountrySelect";
 
 const PAYS_OPTIONS = ["", ...PAYS_LIST];
 const NDA_OPTIONS = ["", "Oui", "Non"] as const;
@@ -573,26 +574,16 @@ export function MemberDetailPanel({
                     <label htmlFor="panel-pays" className={fieldLabel}>
                       Pays <span className="text-red-400/90">*</span>
                     </label>
-                    <select
+                    <CountrySelect
                       id="panel-pays"
                       value={form.pays}
-                      onChange={(e) => {
-                        setForm((f) => ({ ...f, pays: e.target.value }));
+                      onChange={(value) => {
+                        setForm((f) => ({ ...f, pays: value }));
                         setCoordsError(null);
                         setGeocodedCoords(null);
                       }}
-                      className={selectClass}
-                    >
-                      {form.pays &&
-                        !PAYS_OPTIONS.includes(form.pays) && (
-                          <option value={form.pays}>{form.pays}</option>
-                        )}
-                      {PAYS_OPTIONS.filter((p) => p !== "").map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Sélectionner un pays"
+                    />
                   </div>
                   <div className="space-y-1">
                     <label htmlFor="panel-region" className={fieldLabel}>
