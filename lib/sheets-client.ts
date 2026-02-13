@@ -131,6 +131,13 @@ const HEADER_ALIASES: Record<string, string[]> = {
   latitude: ["latitude", "lat"],
   longitude: ["longitude", "lon"],
   lock: ["lock"],
+  twitter: ["twitter"],
+  instagram: ["instagram"],
+  tiktok: ["tiktok"],
+  youtube: ["youtube"],
+  linkedin: ["linkedin"],
+  twitch: ["twitch"],
+  autre: ["autre"],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -172,6 +179,13 @@ export interface SheetsMemberData {
   latitude?: string;
   longitude?: string;
   lock?: string;
+  twitter?: string;
+  instagram?: string;
+  tiktok?: string;
+  youtube?: string;
+  linkedin?: string;
+  twitch?: string;
+  autre?: string;
 }
 
 function buildRow(
@@ -200,6 +214,13 @@ function buildRow(
     latitude: data.latitude,
     longitude: data.longitude,
     lock: data.lock,
+    twitter: data.twitter,
+    instagram: data.instagram,
+    tiktok: data.tiktok,
+    youtube: data.youtube,
+    linkedin: data.linkedin,
+    twitch: data.twitch,
+    autre: data.autre,
   };
 
   for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {

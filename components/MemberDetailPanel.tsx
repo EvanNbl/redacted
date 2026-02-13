@@ -21,13 +21,14 @@ const PAYS_OPTIONS = ["", ...PAYS_LIST];
 const NDA_OPTIONS = ["", "Oui", "Non"] as const;
 const REFERENT_OPTIONS = ["", "Orion", "Nextraker", "Aducine", "Thibani"];
 
-// Réseaux sociaux disponibles
+// Réseaux sociaux (noms des colonnes du sheet)
 const RESEAUX_SOCIAUX = [
   "Twitter",
   "Instagram",
   "Tiktok",
   "Youtube",
   "Linkedin",
+  "Twitch",
   "Autre",
 ] as const;
 
@@ -280,28 +281,23 @@ export function MemberDetailPanel({
     rawRow["Referent"] = form.referent.trim();
     rawRow["Notes"] = form.notes.trim();
     
-    // Réseaux sociaux : en communication on les enregistre ; en commercial on les retire du rawRow
-    if (contactType === "commercial") {
-      RESEAUX_SOCIAUX.forEach((reseau) => delete rawRow[reseau]);
-      Object.keys(rawRow).forEach((key) => {
-        if (key.startsWith("Autre ")) delete rawRow[key];
-      });
-    } else {
-      RESEAUX_SOCIAUX.forEach((reseau) => {
-        if (reseaux[reseau]?.trim()) {
-          rawRow[reseau] = reseaux[reseau].trim();
-        } else {
-          delete rawRow[reseau];
-        }
-      });
-      Object.keys(reseaux).forEach((key) => {
-        if (key.startsWith("Autre ") && reseaux[key]?.trim()) {
-          rawRow[key] = reseaux[key].trim();
-        } else if (key.startsWith("Autre ") && !reseaux[key]?.trim()) {
-          delete rawRow[key];
-        }
-      });
-    }
+    // Sauvegarder les réseaux sociaux : si on a saisi un nom/handle, enregistrer le lien complet
+    RESEAUX_SOCIAUX.forEach((reseau) => {
+      const value = reseaux[reseau]?.trim();
+      if (value) {
+        const fullUrl = getReseauUrl(reseau, value);
+        rawRow[reseau] = fullUrl ?? value;
+      } else {
+        delete rawRow[reseau];
+      }
+    });
+    Object.keys(reseaux).forEach((key) => {
+      if (key.startsWith("Autre ") && reseaux[key]?.trim()) {
+        rawRow[key] = reseaux[key].trim();
+      } else if (key.startsWith("Autre ") && !reseaux[key]?.trim()) {
+        delete rawRow[key];
+      }
+    });
 
     const updated: MemberLocation = {
       id: member?.id ?? `local-${Date.now()}`,
@@ -944,8 +940,7 @@ export function MemberDetailPanel({
                 </div>
               </fieldset>
 
-              {/* ── Réseaux sociaux (communication uniquement) ── */}
-              {contactType !== "commercial" && (
+              {/* ── Réseaux sociaux ── */}
               <fieldset className="space-y-2.5">
                 <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
                   Réseaux sociaux
@@ -1087,7 +1082,6 @@ export function MemberDetailPanel({
                   </div>
                 )}
               </fieldset>
-              )}
 
               {/* Errors */}
               {(coordsError || saveError) && (

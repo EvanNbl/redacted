@@ -17,6 +17,13 @@ const HEADER_ALIASES: Record<string, string[]> = {
   notes: ["notes"],
   latitude: ["latitude", "lat"],
   longitude: ["longitude", "lon"],
+  twitter: ["twitter"],
+  instagram: ["instagram"],
+  tiktok: ["tiktok"],
+  youtube: ["youtube"],
+  linkedin: ["linkedin"],
+  twitch: ["twitch"],
+  autre: ["autre"],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -57,6 +64,13 @@ export async function POST(request: Request) {
       notes = "",
       latitude = "",
       longitude = "",
+      twitter = "",
+      instagram = "",
+      tiktok = "",
+      youtube = "",
+      linkedin = "",
+      twitch = "",
+      autre = "",
       contactType = "communication",
     }: {
       pseudo?: string;
@@ -74,6 +88,13 @@ export async function POST(request: Request) {
       notes?: string;
       latitude?: string;
       longitude?: string;
+      twitter?: string;
+      instagram?: string;
+      tiktok?: string;
+      youtube?: string;
+      linkedin?: string;
+      twitch?: string;
+      autre?: string;
       contactType?: "communication" | "commercial";
     } = body;
 
@@ -145,6 +166,13 @@ export async function POST(request: Request) {
     const notesCol = findColumnIndex(indices, HEADER_ALIASES.notes);
     const latitudeCol = findColumnIndex(indices, HEADER_ALIASES.latitude);
     const longitudeCol = findColumnIndex(indices, HEADER_ALIASES.longitude);
+    const twitterCol = findColumnIndex(indices, HEADER_ALIASES.twitter);
+    const instagramCol = findColumnIndex(indices, HEADER_ALIASES.instagram);
+    const tiktokCol = findColumnIndex(indices, HEADER_ALIASES.tiktok);
+    const youtubeCol = findColumnIndex(indices, HEADER_ALIASES.youtube);
+    const linkedinCol = findColumnIndex(indices, HEADER_ALIASES.linkedin);
+    const twitchCol = findColumnIndex(indices, HEADER_ALIASES.twitch);
+    const autreCol = findColumnIndex(indices, HEADER_ALIASES.autre);
 
     const newRow: string[] = Array(headerRow.length).fill("");
     if (pseudoCol >= 0) newRow[pseudoCol] = String(pseudo ?? "").trim();
@@ -162,6 +190,13 @@ export async function POST(request: Request) {
     if (notesCol >= 0) newRow[notesCol] = String(notes ?? "").trim();
     if (latitudeCol >= 0) newRow[latitudeCol] = String(latitude ?? "").trim();
     if (longitudeCol >= 0) newRow[longitudeCol] = String(longitude ?? "").trim();
+    if (twitterCol >= 0) newRow[twitterCol] = String(twitter ?? "").trim();
+    if (instagramCol >= 0) newRow[instagramCol] = String(instagram ?? "").trim();
+    if (tiktokCol >= 0) newRow[tiktokCol] = String(tiktok ?? "").trim();
+    if (youtubeCol >= 0) newRow[youtubeCol] = String(youtube ?? "").trim();
+    if (linkedinCol >= 0) newRow[linkedinCol] = String(linkedin ?? "").trim();
+    if (twitchCol >= 0) newRow[twitchCol] = String(twitch ?? "").trim();
+    if (autreCol >= 0) newRow[autreCol] = String(autre ?? "").trim();
 
     const appendRange = `${sheetName}!A:Z`;
     await sheets.spreadsheets.values.append({

@@ -548,6 +548,13 @@ export default function Home() {
             latitude: String(updated.latitude),
             longitude: String(updated.longitude),
             lock: updated.rawRow["Lock"] ?? updated.rawRow["lock"] ?? "",
+            twitter: updated.rawRow["Twitter"] ?? "",
+            instagram: updated.rawRow["Instagram"] ?? "",
+            tiktok: updated.rawRow["Tiktok"] ?? "",
+            youtube: updated.rawRow["Youtube"] ?? "",
+            linkedin: updated.rawRow["Linkedin"] ?? "",
+            twitch: updated.rawRow["Twitch"] ?? "",
+            autre: updated.rawRow["Autre"] ?? "",
           };
 
           if (useClientApi) {
@@ -626,6 +633,13 @@ export default function Home() {
           notes: newMember.rawRow["Notes"] ?? "",
           latitude: String(newMember.latitude),
           longitude: String(newMember.longitude),
+          twitter: newMember.rawRow["Twitter"] ?? "",
+          instagram: newMember.rawRow["Instagram"] ?? "",
+          tiktok: newMember.rawRow["Tiktok"] ?? "",
+          youtube: newMember.rawRow["Youtube"] ?? "",
+          linkedin: newMember.rawRow["Linkedin"] ?? "",
+          twitch: newMember.rawRow["Twitch"] ?? "",
+          autre: newMember.rawRow["Autre"] ?? "",
         };
 
         if (useClientApi) {
