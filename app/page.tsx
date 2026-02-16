@@ -17,7 +17,10 @@ import {
   appendRowToSheet,
   updateRowInSheet,
   deleteRowInSheet,
+  appendJournalEntry,
 } from "@/lib/sheets-client";
+import { getCachedSheet, setCachedSheet, isTauriEnv } from "@/lib/sheet-cache";
+import { logAppBanner, devLog } from "@/lib/console-banner";
 
 const MemberMap = dynamic(
   () => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })),
@@ -25,6 +28,7 @@ const MemberMap = dynamic(
 );
 
 import type { MemberLocation } from "@/lib/member-locations";
+import Link from "next/link";
 import {
   RefreshCw,
   Users,
@@ -39,6 +43,7 @@ import {
   MapPin,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -140,15 +145,6 @@ const useClientApi = isClientSheetsAvailable();
 const SHEET_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
 
 type ContactType = "communication" | "commercial";
-
-// Log pour debug en production
-if (typeof window !== "undefined") {
-  console.log("[Config] useClientApi:", useClientApi);
-  console.log("[Config] NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY:", 
-    process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY ? "présent" : "absent");
-  console.log("[Config] SHEET_RANGE:", SHEET_RANGE);
-  console.log("[Config] SHEET_RANGE_COM:", SHEET_RANGE_COM);
-}
 
 /* ── Filter logic ────────────────────────────────────────── */
 
@@ -257,12 +253,16 @@ export default function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setIsTauri(
-        !!(window as unknown as { __TAURI_INTERNALS__?: unknown })
-          .__TAURI_INTERNALS__
-      );
-    }
+    if (typeof window === "undefined") return;
+    const isTauriApp = !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    setIsTauri(isTauriApp);
+    logAppBanner({
+      sheetRange: SHEET_RANGE,
+      sheetRangeCom: SHEET_RANGE_COM,
+      useClientApi,
+      hasServiceAccountKey: !!process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY,
+      isTauri: isTauriApp,
+    });
   }, []);
 
   /* ── Cache sheet (1–2 min) ────────────────────────────── */
@@ -285,13 +285,14 @@ export default function Home() {
 
       const cache = sheetCacheRef.current;
       const now = Date.now();
-      const useCache =
+      const useMemoryCache =
         !forceRefresh &&
         cache &&
         cache.contactType === contactType &&
         now - cache.fetchedAt < SHEET_CACHE_TTL_MS;
 
-      if (useCache && cache) {
+      if (useMemoryCache && cache) {
+        devLog("loadFromSheet", "Cache mémoire", contactType, "→", cache.members.length, "membres");
         setData(cache.data);
         setMembers(cache.members);
         setError(null);
@@ -299,8 +300,43 @@ export default function Home() {
         return cache.members;
       }
 
+      // En mode Tauri : afficher tout de suite le cache SQLite si dispo (ouverture instantanée hors-ligne)
+      let usedLocalCache = false;
+      if (isTauriEnv() && !forceRefresh) {
+        try {
+          const cached = await getCachedSheet(contactType);
+          if (cached?.data_json) {
+            const parsed = JSON.parse(cached.data_json) as {
+              headers: string[];
+              rows: string[][];
+            };
+            if (parsed.headers && Array.isArray(parsed.rows)) {
+              const table = { headers: parsed.headers, rows: parsed.rows };
+              const members = parseMembersFromTable(
+                parsed.headers,
+                parsed.rows,
+                contactType
+              );
+              devLog("loadFromSheet", "Cache SQLite", contactType, "→", members.length, "membres");
+              setData(table);
+              setMembers(members);
+              setError(null);
+              sheetCacheRef.current = {
+                contactType,
+                data: table,
+                members,
+                fetchedAt: cached.fetched_at,
+              };
+              usedLocalCache = true;
+            }
+          }
+        } catch (_) {
+          // Ignorer les erreurs de cache local
+        }
+      }
+
       setLoading(true);
-      setError(null);
+      if (!usedLocalCache) setError(null);
 
       try {
         const range = contactType === "commercial" ? SHEET_RANGE_COM : SHEET_RANGE;
@@ -308,6 +344,7 @@ export default function Home() {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
           range
         )}?${params.toString()}`;
+        devLog("loadFromSheet", "Fetch réseau", contactType, forceRefresh ? "(force)" : "");
 
         const res = await fetch(url);
 
@@ -317,7 +354,8 @@ export default function Home() {
             setError(
               "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé. 3) La clé API est correcte."
             );
-            return [];
+            if (!usedLocalCache) setLoading(false);
+            return usedLocalCache ? (sheetCacheRef.current?.members ?? []) : [];
           }
           throw new Error(
             `Erreur API Google Sheets (${res.status}): ${text}`
@@ -332,6 +370,10 @@ export default function Home() {
           setData(empty);
           setMembers([]);
           sheetCacheRef.current = { contactType, data: empty, members: [], fetchedAt: Date.now() };
+          if (isTauriEnv()) {
+            setCachedSheet(contactType, JSON.stringify(empty), Date.now());
+          }
+          setLoading(false);
           return [];
         }
 
@@ -340,14 +382,23 @@ export default function Home() {
         const table = { headers, rows };
         setData(table);
         setMembers(parsed);
-        sheetCacheRef.current = { contactType, data: table, members: parsed, fetchedAt: Date.now() };
+        const fetchedAt = Date.now();
+        sheetCacheRef.current = { contactType, data: table, members: parsed, fetchedAt };
+        if (isTauriEnv()) {
+          setCachedSheet(contactType, JSON.stringify(table), fetchedAt);
+        }
+        devLog("loadFromSheet", "Réseau OK", contactType, "→", parsed.length, "membres");
+        setLoading(false);
         return parsed;
       } catch (e) {
-        console.error(e);
-        setError("Impossible de charger les contacts depuis Google Sheets.");
-        return [];
-      } finally {
+        devLog("loadFromSheet", "Erreur réseau", e);
+        if (!usedLocalCache) {
+          setError("Impossible de charger les contacts depuis Google Sheets.");
+        } else {
+          devLog("loadFromSheet", "Affichage depuis le cache local");
+        }
         setLoading(false);
+        return usedLocalCache ? (sheetCacheRef.current?.members ?? []) : [];
       }
     },
     [contactType]
@@ -586,15 +637,29 @@ export default function Home() {
               throw new Error(json.error);
             }
           }
+          devLog("handleSaveMember", "Mise à jour OK → journal + refresh");
+          if (useClientApi) {
+            void appendJournalEntry("Modifié", contactType, {
+              memberId: updated.id,
+              pseudo: getMemberDisplayName(updated, contactType),
+            });
+          }
 
           setMembers((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
           setSelectedMember(updated);
+          const freshMembers = await loadFromSheet(true);
+          setSelectedMember((prev) =>
+            prev && freshMembers.length
+              ? (freshMembers.find((m) => m.id === prev!.id) ?? prev)
+              : prev
+          );
         } catch {
           /* saveError déjà positionné — actualiser pour que le switch reflète l'état réel et permettre de réessayer */
           const savedId = updated.id;
-          const freshMembers = await loadFromSheet();
+          devLog("handleSaveMember", "Erreur → rechargement sheet");
+          const freshMembers = await loadFromSheet(true);
           setSelectedMember((prev) =>
             prev?.id === savedId && freshMembers?.length
               ? (freshMembers.find((m) => m.id === savedId) ?? prev)
@@ -650,6 +715,7 @@ export default function Home() {
             );
             throw new Error(result.error);
           }
+          devLog("handleAddMember", "Ajout OK (client API)");
         } else {
           const res = await fetch("/api/sheets/append", {
             method: "POST",
@@ -664,9 +730,16 @@ export default function Home() {
             );
             throw new Error(json.error);
           }
+          devLog("handleAddMember", "Ajout OK (API route)");
         }
-
-        await loadFromSheet();
+        if (useClientApi) {
+          void appendJournalEntry("Ajouté", contactType, {
+            pseudo: newMember.pseudo,
+            details: newMember.ville || newMember.pays ? `${newMember.ville || ""} ${newMember.pays || ""}`.trim() : undefined,
+          });
+        }
+        devLog("handleAddMember", "Refresh liste (force)");
+        await loadFromSheet(true);
       } finally {
         setSaving(false);
       }
@@ -693,6 +766,7 @@ export default function Home() {
             );
             throw new Error(result.error);
           }
+          devLog("handleDeleteMember", "Suppression OK (client API)");
         } else {
           const res = await fetch("/api/sheets/delete", {
             method: "POST",
@@ -702,13 +776,20 @@ export default function Home() {
           const json = await res.json().catch(() => ({}));
           if (!res.ok) {
             const errorMsg = json.error ?? `Erreur ${res.status} lors de la suppression.`;
-            console.error("[DELETE] Erreur serveur:", json);
+            console.error("[handleDeleteMember] Erreur serveur:", json);
             setSaveError(errorMsg);
             throw new Error(errorMsg);
           }
+          devLog("handleDeleteMember", "Suppression OK (API route)");
         }
-
-        await loadFromSheet();
+        if (useClientApi) {
+          void appendJournalEntry("Supprimé", contactType, {
+            memberId: member.id,
+            pseudo: getMemberDisplayName(member, contactType),
+          });
+        }
+        devLog("handleDeleteMember", "Refresh liste (force)");
+        await loadFromSheet(true);
       } finally {
         setDeleting(false);
       }
@@ -892,6 +973,16 @@ export default function Home() {
               <span className="hidden sm:inline ml-1">Rafraîchir</span>
             </Button>
           )}
+
+          {/* Journal des modifications */}
+          <Link
+            href="/journal"
+            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
+            title="Voir le journal des modifications"
+          >
+            <ScrollText className="size-3.5" />
+            <span className="hidden sm:inline">Journal</span>
+          </Link>
 
           {/* Filter toggle */}
           <Button

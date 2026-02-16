@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { appendJournalEntryServer } from "@/lib/journal-server";
 
 /** Nom des colonnes reconnus (minuscules, pour matching). */
 const HEADER_ALIASES: Record<string, string[]> = {
@@ -238,6 +239,11 @@ export async function POST(request: Request) {
       requestBody: {
         values: [newRow],
       },
+    });
+
+    await appendJournalEntryServer(sheets, spreadsheetId, "Modifié", contactType, {
+      memberId,
+      pseudo: pseudo || [prenom, nom].filter(Boolean).join(" ").trim() || undefined,
     });
 
     return NextResponse.json({ ok: true });

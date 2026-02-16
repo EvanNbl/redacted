@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Download, RefreshCw, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { devLog, devWarn } from "@/lib/console-banner";
 
 /* ─── Types ─── */
 
@@ -80,14 +81,9 @@ export function UpdateChecker() {
       setCurrentVersion(v.current);
 
       const githubVersion = v.latest ?? "(indisponible)";
-      console.log(
-        "[Projet Paris] Version actuelle:",
-        v.current,
-        "| Version GitHub (latest):",
-        githubVersion
-      );
+      devLog("Projet Paris", "Version", v.current, "| GitHub:", githubVersion);
       if (v.api_error) {
-        console.warn("[Projet Paris] API GitHub:", v.api_error);
+        devWarn("Projet Paris", "API GitHub", v.api_error);
       }
 
       if (!v.latest) {

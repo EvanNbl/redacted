@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { appendJournalEntryServer } from "@/lib/journal-server";
 
 const HEADER_ALIASES: Record<string, string[]> = {
   pseudo: ["pseudo"],
@@ -206,6 +207,11 @@ export async function POST(request: Request) {
       requestBody: {
         values: [newRow],
       },
+    });
+
+    await appendJournalEntryServer(sheets, spreadsheetId, "Ajouté", contactType, {
+      pseudo: pseudo || [prenom, nom].filter(Boolean).join(" ").trim() || undefined,
+      details: [ville, pays].filter(Boolean).join(" ").trim() || undefined,
     });
 
     return NextResponse.json({ ok: true });

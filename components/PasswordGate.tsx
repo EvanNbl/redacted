@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { devLog } from "@/lib/console-banner";
 
 interface PasswordGateProps {
   children: React.ReactNode;
@@ -22,12 +23,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
     const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
     const sheetPass = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS;
-    console.log("[PasswordGate] Au chargement — env (fallback login):", {
-      sheetId: !!sheetId,
-      apiKey: !!apiKey,
-      sheetPassRange: !!sheetPass,
-      range: sheetPass ?? "(défaut MDP!A1:B2)",
-    });
+    devLog("PasswordGate", "env", { sheetId: !!sheetId, apiKey: !!apiKey, sheetPass: !!sheetPass });
     // Vérifier si l'utilisateur est déjà authentifié dans cette session
     const authStatus = sessionStorage.getItem("app_authenticated");
     if (authStatus === "true") {
@@ -51,7 +47,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
       let ok = false;
 
       // 1) Essayer la route API (uniquement en dev avec next dev — en prod statique / Tauri elle n'existe pas)
-      console.log("[PasswordGate] 1) Tentative API /api/auth/check-password…");
+      devLog("PasswordGate", "Tentative API check-password");
       try {
         const res = await fetch("/api/auth/check-password", {
           method: "POST",
@@ -59,13 +55,12 @@ export function PasswordGate({ children }: PasswordGateProps) {
           body: JSON.stringify({ password: pwd }),
         });
         const data = await res.json().catch(() => ({}));
-        console.log("[PasswordGate] API réponse:", { status: res.status, ok: res.ok, data });
         if (res.ok && data.ok === true) {
           ok = true;
-          console.log("[PasswordGate] API a validé le mot de passe.");
+          devLog("PasswordGate", "API OK");
         }
       } catch (apiErr) {
-        console.log("[PasswordGate] API erreur (réseau ou CORS):", apiErr);
+        devLog("PasswordGate", "API erreur", apiErr);
       }
 
       // 2) Si l'API n'a pas validé (404 en prod, ou mot de passe refusé), fallback build statique / Tauri
@@ -73,11 +68,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
         const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
         const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
         const range = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS ?? "MDP!A1:B2";
-        console.log("[PasswordGate] 2) Fallback Sheet — config:", {
-          sheetId: sheetId ? `${sheetId.slice(0, 8)}…` : "MANQUANT",
-          apiKey: apiKey ? "présent" : "MANQUANT",
-          range: range ?? "MANQUANT",
-        });
+        devLog("PasswordGate", "Fallback Sheet");
         if (sheetId && apiKey && range) {
           const params = new URLSearchParams({ key: apiKey });
           const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?${params.toString()}`;
@@ -86,23 +77,11 @@ export function PasswordGate({ children }: PasswordGateProps) {
           const values = json.values ?? [];
           const stored = (values[0]?.[0] ?? "").toString().trim();
           ok = stored.length > 0 && pwd === stored;
-          console.log("[PasswordGate] Fallback Sheet réponse:", {
-            status: res.status,
-            resOk: res.ok,
-            hasValues: values.length > 0,
-            storedLength: stored.length,
-            match: stored.length > 0 && pwd === stored,
-            ok,
-          });
-          if (!res.ok) {
-            console.log("[PasswordGate] Fallback Sheet body (erreur):", json);
-          }
-        } else {
-          console.log("[PasswordGate] Fallback ignoré : config incomplète (sheetId/apiKey/range).");
+          devLog("PasswordGate", "Fallback", res.ok ? "OK" : res.status, ok ? "connexion" : "refus");
         }
       }
 
-      console.log("[PasswordGate] Résultat final:", ok ? "OK — connexion" : "REFUS");
+      devLog("PasswordGate", ok ? "Connexion OK" : "Refus");
       if (ok) {
         sessionStorage.setItem("app_authenticated", "true");
         setIsAuthenticated(true);

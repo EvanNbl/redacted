@@ -307,11 +307,23 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
+        use tauri_plugin_sql::{Migration, MigrationKind};
+        let migrations = vec![Migration {
+            version: 1,
+            description: "sheet_cache",
+            sql: "CREATE TABLE IF NOT EXISTS sheet_cache (contact_type TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at INTEGER NOT NULL);",
+            kind: MigrationKind::Up,
+        }];
         builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_fs::init())
+            .plugin(
+                tauri_plugin_sql::Builder::default()
+                    .add_migrations("sqlite:contacts_cache.db", migrations)
+                    .build(),
+            )
             .invoke_handler(tauri::generate_handler![
             updater_cmd::check_and_install_update,
             updater_cmd::check_update_with_auth,

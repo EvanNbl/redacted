@@ -5,6 +5,8 @@
  * Required for production builds with `output: "export"` (static).
  */
 
+import { devLog, devWarn } from "./console-banner";
+
 interface ServiceAccountCredentials {
   client_email: string;
   private_key: string;
@@ -373,6 +375,77 @@ export async function updateRowInSheet(
   }
 }
 
+/** Journal des modifications (feuille "Journal") : à appeler après ajout/modification/suppression. */
+export type JournalAction = "Ajouté" | "Modifié" | "Supprimé";
+
+export async function appendJournalEntry(
+  action: JournalAction,
+  contactType: "communication" | "commercial",
+  options: { memberId?: string; pseudo?: string; details?: string }
+): Promise<void> {
+  const creds = parseServiceAccountKey();
+  if (!creds) {
+    devLog("Journal", "Écriture ignorée: compte de service absent");
+    return;
+  }
+  const spreadsheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
+  const journalRange =
+    process.env.NEXT_PUBLIC_GOOGLE_SHEETS_JOURNAL_RANGE ?? "Journal!A1:G1000";
+  if (!spreadsheetId) {
+    devLog("Journal", "Écriture ignorée: ID tableur absent");
+    return;
+  }
+
+  const sheetName = (journalRange.match(/^([^!]+)!/)?.[1] ?? "Journal").replace(
+    /^'|'$/g,
+    ""
+  );
+  devLog("Journal", "Écriture →", sheetName, action);
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("fr-FR");
+  const timeStr = now.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const row = [
+    dateStr,
+    timeStr,
+    action,
+    contactType,
+    options.memberId ?? "",
+    options.pseudo ?? "",
+    options.details ?? "",
+  ];
+
+  try {
+    const token = await getAccessToken(creds);
+    const appendRes = await fetch(
+      `${SHEETS_API}/${spreadsheetId}/values/${encodeURIComponent(`${sheetName}!A:G`)}:append?valueInputOption=USER_ENTERED`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ values: [row] }),
+      }
+    );
+    if (!appendRes.ok) {
+      const body = await appendRes.text();
+      devWarn("Journal", "Écriture échouée", appendRes.status, body.slice(0, 150));
+      if (appendRes.status === 404) {
+        devWarn("Journal", "Feuille \"" + sheetName + "\" absente ? Créez-la avec en-têtes: Date, Heure, Action, Type contact, Ligne/ID, Pseudo, Détails");
+      }
+    } else {
+      devLog("Journal", "OK", sheetName, action, options.pseudo ?? options.memberId);
+    }
+  } catch (e) {
+    devWarn("Journal", "Erreur", e);
+  }
+}
+
 export async function deleteRowInSheet(
   memberId: string,
   contactType: "communication" | "commercial" = "communication"
@@ -422,8 +495,7 @@ export async function deleteRowInSheet(
     
     // Debug: log all sheet names
     const availableSheets = sheetsData.sheets?.map((s: { properties?: { title?: string } }) => s.properties?.title) || [];
-    console.log(`[DELETE] Recherche de la feuille "${sheetName}" (normalisé: "${normalizedSheetName}") parmi:`, availableSheets);
-    console.log(`[DELETE] contactType:`, contactType, `rangeA1:`, rangeA1);
+    devLog("DELETE", "Feuille", sheetName, "parmi", availableSheets);
     
     const sheet = sheetsData.sheets?.find(
       (s: { properties?: { title?: string; sheetId?: number } }) =>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { appendJournalEntryServer } from "@/lib/journal-server";
 
 export async function POST(request: Request) {
   try {
@@ -143,7 +144,9 @@ export async function POST(request: Request) {
             values: [emptyRow],
           },
         });
-        
+
+        await appendJournalEntryServer(sheets, spreadsheetId, "Supprimé", contactType, { memberId });
+
         return NextResponse.json({ ok: true, message: "Dernière ligne vidée (non supprimée pour éviter l'erreur Google Sheets)" });
       }
       
@@ -181,6 +184,8 @@ export async function POST(request: Request) {
         ],
       },
     });
+
+    await appendJournalEntryServer(sheets, spreadsheetId, "Supprimé", contactType, { memberId });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
