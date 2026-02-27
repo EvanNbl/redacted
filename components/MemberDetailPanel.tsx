@@ -74,6 +74,19 @@ const RAW_ROW_KEYS = {
   ndaSignee: ["NDA Signée", "NDA Signee", "NDA"],
   referent: ["Referent", "Réferent", "Référent"],
   notes: ["Notes"],
+  contacter: [
+    "Contacter",
+    "Contacter ?",
+    "Contact OK ?",
+    "Contact ok ?",
+    "À contacter",
+    "A contacter",
+    "Contacté",
+    "Contacté ?",
+    "Contacte",
+    "Déjà contacté",
+    "Deja contacté",
+  ],
 } as const;
 
 const emptyForm = {
@@ -90,6 +103,8 @@ const emptyForm = {
   ndaSignee: "Non",
   referent: "",
   notes: "",
+  // Par défaut : non contacté
+  contacter: "Non",
   manualLat: "",
   manualLon: "",
 };
@@ -151,6 +166,8 @@ export function MemberDetailPanel({
         ndaSignee: getFromRawRow(raw, [...RAW_ROW_KEYS.ndaSignee]) || "Non",
         referent: getFromRawRow(raw, [...RAW_ROW_KEYS.referent]),
         notes: getFromRawRow(raw, [...RAW_ROW_KEYS.notes]),
+        contacter:
+          getFromRawRow(raw, [...RAW_ROW_KEYS.contacter]) || "Non",
         manualLat: "",
         manualLon: "",
       });
@@ -280,6 +297,9 @@ export function MemberDetailPanel({
     rawRow["NDA Signée"] = form.ndaSignee.trim();
     rawRow["Referent"] = form.referent.trim();
     rawRow["Notes"] = form.notes.trim();
+    // Champ "contacté": on écrit dans les deux variantes pour compatibilité
+    rawRow["Contacté"] = form.contacter.trim();
+    rawRow["Contacter"] = form.contacter.trim();
     
     // Sauvegarder les réseaux sociaux : si on a saisi un nom/handle, enregistrer le lien complet
     RESEAUX_SOCIAUX.forEach((reseau) => {
@@ -916,6 +936,31 @@ export function MemberDetailPanel({
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-medium text-zinc-200">
+                        Contacté
+                      </span>
+                      <span className="text-[10px] text-zinc-500">
+                        {form.contacter === "Oui"
+                          ? "Tu as déjà contacté ce contact"
+                          : "Pas encore contacté"}
+                      </span>
+                    </div>
+                    <Switch
+                      checked={form.contacter === "Oui"}
+                      disabled={isLocked}
+                      onCheckedChange={(checked) =>
+                        setForm((f) => ({
+                          ...f,
+                          contacter: checked ? "Oui" : "Non",
+                        }))
+                      }
+                    />
                   </div>
                 </div>
 

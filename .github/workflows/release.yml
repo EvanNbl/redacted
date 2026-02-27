@@ -48,6 +48,7 @@ jobs:
           NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY }}
           GOOGLE_SHEETS_RANGE: ${{ secrets.GOOGLE_SHEETS_RANGE }}
           GOOGLE_SHEETS_RANGE_COM: ${{ secrets.GOOGLE_SHEETS_RANGE_COM }}
+          GOOGLE_SHEETS_JOURNAL_RANGE: ${{ secrets.GOOGLE_SHEETS_JOURNAL_RANGE }}
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           NEXT_PUBLIC_UPDATER_TOKEN: ${{ secrets.TAURI_UPDATE_TOKEN }}
@@ -58,5 +59,4 @@ jobs:
           releaseBody: "Voir les assets pour télécharger et installer."
           releaseDraft: false
           prerelease: false
-          # Retry build and upload (réduit les échecs "other side closed" / coupures réseau)
-          retryAttempts: 3
+          retryAttempts: 2

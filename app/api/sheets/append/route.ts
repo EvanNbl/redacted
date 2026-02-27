@@ -18,6 +18,21 @@ const HEADER_ALIASES: Record<string, string[]> = {
   notes: ["notes"],
   latitude: ["latitude", "lat"],
   longitude: ["longitude", "lon"],
+  contacter: [
+    "contacter",
+    "contacter ?",
+    "à contacter",
+    "a contacter",
+    "ok pour contact",
+    "contact ok",
+    "contact ok ?",
+    "contacté",
+    "contacté ?",
+    "contacte",
+    "deja contacté",
+    "déjà contacté",
+    "déja contacté",
+  ],
   twitter: ["twitter"],
   instagram: ["instagram"],
   tiktok: ["tiktok"],
@@ -65,6 +80,7 @@ export async function POST(request: Request) {
       notes = "",
       latitude = "",
       longitude = "",
+      contacter = "",
       twitter = "",
       instagram = "",
       tiktok = "",
@@ -89,6 +105,7 @@ export async function POST(request: Request) {
       notes?: string;
       latitude?: string;
       longitude?: string;
+      contacter?: string;
       twitter?: string;
       instagram?: string;
       tiktok?: string;
@@ -167,6 +184,7 @@ export async function POST(request: Request) {
     const notesCol = findColumnIndex(indices, HEADER_ALIASES.notes);
     const latitudeCol = findColumnIndex(indices, HEADER_ALIASES.latitude);
     const longitudeCol = findColumnIndex(indices, HEADER_ALIASES.longitude);
+    const contacterCol = findColumnIndex(indices, HEADER_ALIASES.contacter);
     const twitterCol = findColumnIndex(indices, HEADER_ALIASES.twitter);
     const instagramCol = findColumnIndex(indices, HEADER_ALIASES.instagram);
     const tiktokCol = findColumnIndex(indices, HEADER_ALIASES.tiktok);
@@ -191,6 +209,8 @@ export async function POST(request: Request) {
     if (notesCol >= 0) newRow[notesCol] = String(notes ?? "").trim();
     if (latitudeCol >= 0) newRow[latitudeCol] = String(latitude ?? "").trim();
     if (longitudeCol >= 0) newRow[longitudeCol] = String(longitude ?? "").trim();
+    if (contacterCol >= 0)
+      newRow[contacterCol] = String(contacter ?? "").trim();
     if (twitterCol >= 0) newRow[twitterCol] = String(twitter ?? "").trim();
     if (instagramCol >= 0) newRow[instagramCol] = String(instagram ?? "").trim();
     if (tiktokCol >= 0) newRow[tiktokCol] = String(tiktok ?? "").trim();

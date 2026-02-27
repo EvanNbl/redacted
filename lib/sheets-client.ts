@@ -140,6 +140,21 @@ const HEADER_ALIASES: Record<string, string[]> = {
   linkedin: ["linkedin"],
   twitch: ["twitch"],
   autre: ["autre"],
+  contacter: [
+    "contacter",
+    "contacter ?",
+    "à contacter",
+    "a contacter",
+    "ok pour contact",
+    "contact ok",
+    "contact ok ?",
+    "contacté",
+    "contacté ?",
+    "contacte",
+    "deja contacté",
+    "déjà contacté",
+    "déja contacté",
+  ],
 };
 
 function getHeaderIndices(headers: string[]): Record<string, number> {
@@ -188,6 +203,8 @@ export interface SheetsMemberData {
   linkedin?: string;
   twitch?: string;
   autre?: string;
+  /** Champ "Contacté" (Oui/Non) : si le contact a déjà été contacté. */
+  contacter?: string;
 }
 
 function buildRow(
@@ -223,6 +240,7 @@ function buildRow(
     linkedin: data.linkedin,
     twitch: data.twitch,
     autre: data.autre,
+    contacter: data.contacter,
   };
 
   for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {

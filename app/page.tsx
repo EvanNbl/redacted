@@ -44,6 +44,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  FileSignature,
+  MailCheck,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,6 +146,14 @@ const SHEET_RANGE_COM =
 const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
 const useClientApi = isClientSheetsAvailable();
 const SHEET_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
+
+/** Cache persistant au niveau module : survit à la navigation (ex. Retour depuis /journal). */
+let globalSheetCache: {
+  contactType: ContactType;
+  data: ContactsTable;
+  members: MemberLocation[];
+  fetchedAt: number;
+} | null = null;
 
 type ContactType = "communication" | "commercial";
 
@@ -283,7 +294,7 @@ export default function Home() {
         return [];
       }
 
-      const cache = sheetCacheRef.current;
+      const cache = sheetCacheRef.current ?? globalSheetCache;
       const now = Date.now();
       const useMemoryCache =
         !forceRefresh &&
@@ -293,6 +304,7 @@ export default function Home() {
 
       if (useMemoryCache && cache) {
         devLog("loadFromSheet", "Cache mémoire", contactType, "→", cache.members.length, "membres");
+        sheetCacheRef.current = cache;
         setData(cache.data);
         setMembers(cache.members);
         setError(null);
@@ -321,12 +333,14 @@ export default function Home() {
               setData(table);
               setMembers(members);
               setError(null);
-              sheetCacheRef.current = {
+              const cacheEntry = {
                 contactType,
                 data: table,
                 members,
                 fetchedAt: cached.fetched_at,
               };
+              sheetCacheRef.current = cacheEntry;
+              globalSheetCache = cacheEntry;
               usedLocalCache = true;
             }
           }
@@ -369,7 +383,9 @@ export default function Home() {
           const empty = { headers: [] as string[], rows: [] as string[][] };
           setData(empty);
           setMembers([]);
-          sheetCacheRef.current = { contactType, data: empty, members: [], fetchedAt: Date.now() };
+          const emptyCache = { contactType, data: empty, members: [], fetchedAt: Date.now() };
+          sheetCacheRef.current = emptyCache;
+          globalSheetCache = emptyCache;
           if (isTauriEnv()) {
             setCachedSheet(contactType, JSON.stringify(empty), Date.now());
           }
@@ -383,7 +399,9 @@ export default function Home() {
         setData(table);
         setMembers(parsed);
         const fetchedAt = Date.now();
-        sheetCacheRef.current = { contactType, data: table, members: parsed, fetchedAt };
+        const cacheEntry = { contactType, data: table, members: parsed, fetchedAt };
+        sheetCacheRef.current = cacheEntry;
+        globalSheetCache = cacheEntry;
         if (isTauriEnv()) {
           setCachedSheet(contactType, JSON.stringify(table), fetchedAt);
         }
@@ -579,6 +597,7 @@ export default function Home() {
   const handleSaveMember = useCallback(
     async (updated: MemberLocation) => {
       if (updated.id.startsWith("sheet-")) {
+        const previous = members.find((m) => m.id === updated.id) ?? null;
         setSaving(true);
         setSaveError(null);
         try {
@@ -606,6 +625,11 @@ export default function Home() {
             linkedin: updated.rawRow["Linkedin"] ?? "",
             twitch: updated.rawRow["Twitch"] ?? "",
             autre: updated.rawRow["Autre"] ?? "",
+            // Champ "contacté" : on lit indifféremment les 2 variantes
+            contacter:
+              updated.rawRow["Contacté"] ??
+              updated.rawRow["Contacter"] ??
+              "",
           };
 
           if (useClientApi) {
@@ -639,9 +663,68 @@ export default function Home() {
           }
           devLog("handleSaveMember", "Mise à jour OK → journal + refresh");
           if (useClientApi) {
+            let details: string | undefined;
+            if (previous) {
+              const changes: string[] = [];
+              const addChange = (
+                label: string,
+                before: string | null | undefined,
+                after: string | null | undefined
+              ) => {
+                const b = (before ?? "").trim();
+                const a = (after ?? "").trim();
+                if (b === a) return;
+                const from = b || "—";
+                const to = a || "—";
+                changes.push(`${label}: "${from}" → "${to}"`);
+              };
+
+              addChange("Pseudo", previous.pseudo, updated.pseudo);
+              addChange("Ville", previous.ville, updated.ville);
+              addChange("Pays", previous.pays, updated.pays);
+              addChange(
+                "NDA",
+                (previous.rawRow["NDA Signée"] ??
+                  previous.rawRow["NDA Signee"] ??
+                  "") as string,
+                (updated.rawRow["NDA Signée"] ??
+                  updated.rawRow["NDA Signee"] ??
+                  "") as string
+              );
+              addChange(
+                "Référent",
+                (previous.rawRow["Referent"] ??
+                  previous.rawRow["Référent"] ??
+                  "") as string,
+                (updated.rawRow["Referent"] ??
+                  updated.rawRow["Référent"] ??
+                  "") as string
+              );
+              addChange(
+                "Contacté",
+                (previous.rawRow["Contacté"] ??
+                  previous.rawRow["Contacter"] ??
+                  "") as string,
+                (updated.rawRow["Contacté"] ??
+                  updated.rawRow["Contacter"] ??
+                  "") as string
+              );
+
+              const prevNotes = String(previous.rawRow["Notes"] ?? "").trim();
+              const nextNotes = String(updated.rawRow["Notes"] ?? "").trim();
+              if (prevNotes !== nextNotes) {
+                changes.push("Notes: modifiées");
+              }
+
+              if (changes.length > 0) {
+                details = changes.join(" | ");
+              }
+            }
+
             void appendJournalEntry("Modifié", contactType, {
               memberId: updated.id,
               pseudo: getMemberDisplayName(updated, contactType),
+              details,
             });
           }
 
@@ -674,7 +757,7 @@ export default function Home() {
         );
       }
     },
-    [contactType, loadFromSheet]
+    [contactType, loadFromSheet, members]
   );
 
   const handleAddMember = useCallback(
@@ -705,6 +788,11 @@ export default function Home() {
           linkedin: newMember.rawRow["Linkedin"] ?? "",
           twitch: newMember.rawRow["Twitch"] ?? "",
           autre: newMember.rawRow["Autre"] ?? "",
+          // Champ "contacté" : on lit indifféremment les 2 variantes
+          contacter:
+            newMember.rawRow["Contacté"] ??
+            newMember.rawRow["Contacter"] ??
+            "",
         };
 
         if (useClientApi) {
@@ -733,9 +821,47 @@ export default function Home() {
           devLog("handleAddMember", "Ajout OK (API route)");
         }
         if (useClientApi) {
+          const nda = (
+            newMember.rawRow["NDA Signée"] ??
+            newMember.rawRow["NDA Signee"] ??
+            ""
+          ) as string;
+          const referent = (
+            newMember.rawRow["Referent"] ??
+            newMember.rawRow["Référent"] ??
+            ""
+          ) as string;
+          const contacter = (
+            newMember.rawRow["Contacté"] ??
+            newMember.rawRow["Contacter"] ??
+            ""
+          ) as string;
+          const langues = (
+            newMember.rawRow["Langue(s) parlée(s)"] ??
+            newMember.rawRow["Langues"] ??
+            ""
+          ) as string;
+
+          const detailParts: string[] = [];
+          if (newMember.ville || newMember.pays) {
+            detailParts.push(
+              `Localisation: ${newMember.ville || "—"} / ${newMember.pays || "—"}`
+            );
+          }
+          if (nda.trim()) detailParts.push(`NDA: ${nda.trim()}`);
+          if (referent.trim())
+            detailParts.push(`Référent: ${referent.trim()}`);
+          if (contacter.trim())
+            detailParts.push(`Contacté: ${contacter.trim()}`);
+          if (langues.trim())
+            detailParts.push(`Langues: ${langues.trim()}`);
+
+          const details =
+            detailParts.length > 0 ? detailParts.join(" | ") : undefined;
+
           void appendJournalEntry("Ajouté", contactType, {
             pseudo: newMember.pseudo,
-            details: newMember.ville || newMember.pays ? `${newMember.ville || ""} ${newMember.pays || ""}`.trim() : undefined,
+            details,
           });
         }
         devLog("handleAddMember", "Refresh liste (force)");
@@ -783,9 +909,41 @@ export default function Home() {
           devLog("handleDeleteMember", "Suppression OK (API route)");
         }
         if (useClientApi) {
+          const nda = (
+            member.rawRow["NDA Signée"] ??
+            member.rawRow["NDA Signee"] ??
+            ""
+          ) as string;
+          const referent = (
+            member.rawRow["Referent"] ??
+            member.rawRow["Référent"] ??
+            ""
+          ) as string;
+          const contacter = (
+            member.rawRow["Contacté"] ??
+            member.rawRow["Contacter"] ??
+            ""
+          ) as string;
+
+          const detailParts: string[] = [];
+          if (member.ville || member.pays) {
+            detailParts.push(
+              `Localisation: ${member.ville || "—"} / ${member.pays || "—"}`
+            );
+          }
+          if (nda.trim()) detailParts.push(`NDA: ${nda.trim()}`);
+          if (referent.trim())
+            detailParts.push(`Référent: ${referent.trim()}`);
+          if (contacter.trim())
+            detailParts.push(`Contacté: ${contacter.trim()}`);
+
+          const details =
+            detailParts.length > 0 ? detailParts.join(" | ") : undefined;
+
           void appendJournalEntry("Supprimé", contactType, {
             memberId: member.id,
             pseudo: getMemberDisplayName(member, contactType),
+            details,
           });
         }
         devLog("handleDeleteMember", "Refresh liste (force)");
@@ -1258,8 +1416,22 @@ export default function Home() {
                     }
                     const { member: m, section } = row;
                     const isRefus = section === "refus";
-                    const displayName = contactType === "commercial" ? getMemberDisplayName(m, "commercial") : m.pseudo;
-                    const ndaOui = ((m.rawRow["NDA Signée"] ?? m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui");
+                    const displayName =
+                      contactType === "commercial"
+                        ? getMemberDisplayName(m, "commercial")
+                        : m.pseudo;
+                    const ndaOui =
+                      ((m.rawRow["NDA Signée"] ??
+                        m.rawRow["NDA Signee"] ??
+                        "").trim().toLowerCase() === "oui");
+                    const contacteValeur = (
+                      m.rawRow["Contacté"] ??
+                      m.rawRow["Contacter"] ??
+                      ""
+                    )
+                      .trim()
+                      .toLowerCase();
+                    const contacteOui = contacteValeur === "oui";
                     return (
                       <button
                         key={m.id}
@@ -1294,14 +1466,29 @@ export default function Home() {
                           <span className="mt-0.5 shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-red-400">
                             REFUS
                           </span>
-                        ) : ndaOui ? (
-                          <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                            NDA
-                          </span>
                         ) : (
-                          <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                            NDA
-                          </span>
+                          <div className="mt-0.5 flex items-center gap-1 shrink-0">
+                            <span
+                              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                                ndaOui
+                                  ? "bg-emerald-500/15 text-emerald-400"
+                                  : "bg-rose-500/15 text-rose-400"
+                              }`}
+                            >
+                              <FileSignature className="size-3" />
+                              <span>NDA</span>
+                            </span>
+                            <span
+                              className="shrink-0"
+                              title={contacteOui ? "Contacté" : "Non contacté"}
+                            >
+                              {contacteOui ? (
+                                <MailCheck className="size-3.5 text-sky-400" />
+                              ) : (
+                                <Mail className="size-3.5 text-zinc-500" />
+                              )}
+                            </span>
+                          </div>
                         )}
                       </button>
                     );
@@ -1343,16 +1530,44 @@ export default function Home() {
                               {[m.ville, m.pays].filter(Boolean).join(", ")}
                             </p>
                           </div>
-                          {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
-                            (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
-                            <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                              NDA
+                          <div className="mt-0.5 flex items-center gap-1 shrink-0">
+                            <span
+                              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                                ((m.rawRow["NDA Signée"] ?? "")
+                                  .trim()
+                                  .toLowerCase() === "oui" ||
+                                  (m.rawRow["NDA Signee"] ?? "")
+                                    .trim()
+                                    .toLowerCase() === "oui")
+                                  ? "bg-emerald-500/15 text-emerald-400"
+                                  : "bg-rose-500/15 text-rose-400"
+                              }`}
+                            >
+                              <FileSignature className="size-3" />
+                              <span>NDA</span>
                             </span>
-                          ) : (
-                            <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                              NDA
+                            <span
+                              className="shrink-0"
+                              title={
+                                ((m.rawRow["Contacté"] ??
+                                  m.rawRow["Contacter"] ??
+                                  "")
+                                  .trim()
+                                  .toLowerCase() === "oui"
+                                  ? "Contacté"
+                                  : "Non contacté")
+                              }
+                            >
+                              {(m.rawRow["Contacté"] ??
+                              m.rawRow["Contacter"] ??
+                              ""
+                            ).trim().toLowerCase() === "oui" ? (
+                              <MailCheck className="size-3.5 text-sky-400" />
+                            ) : (
+                              <Mail className="size-3.5 text-zinc-500" />
+                            )}
                             </span>
-                          )}
+                          </div>
                         </button>
                       ))}
                       {sortedRefus.length > 0 && (
@@ -1417,16 +1632,44 @@ export default function Home() {
                               {[m.ville, m.pays].filter(Boolean).join(", ")}
                             </p>
                           </div>
-                          {((m.rawRow["NDA Signée"] ?? "").trim().toLowerCase() === "oui" ||
-                            (m.rawRow["NDA Signee"] ?? "").trim().toLowerCase() === "oui") ? (
-                            <span className="mt-0.5 shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-400">
-                              NDA
+                          <div className="mt-0.5 flex items-center gap-1 shrink-0">
+                            <span
+                              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                                ((m.rawRow["NDA Signée"] ?? "")
+                                  .trim()
+                                  .toLowerCase() === "oui" ||
+                                  (m.rawRow["NDA Signee"] ?? "")
+                                    .trim()
+                                    .toLowerCase() === "oui")
+                                  ? "bg-emerald-500/15 text-emerald-400"
+                                  : "bg-rose-500/15 text-rose-400"
+                              }`}
+                            >
+                              <FileSignature className="size-3" />
+                              <span>NDA</span>
                             </span>
-                          ) : (
-                            <span className="mt-0.5 shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-rose-400">
-                              NDA
+                            <span
+                              className="shrink-0"
+                              title={
+                                ((m.rawRow["Contacté"] ??
+                                  m.rawRow["Contacter"] ??
+                                  "")
+                                  .trim()
+                                  .toLowerCase() === "oui"
+                                  ? "Contacté"
+                                  : "Non contacté")
+                              }
+                            >
+                              {(m.rawRow["Contacté"] ??
+                              m.rawRow["Contacter"] ??
+                              ""
+                            ).trim().toLowerCase() === "oui" ? (
+                              <MailCheck className="size-3.5 text-sky-400" />
+                            ) : (
+                              <Mail className="size-3.5 text-zinc-500" />
+                            )}
                             </span>
-                          )}
+                          </div>
                         </button>
                       );
                     })}
