@@ -48,7 +48,7 @@ export async function getCachedSheet(
   }
   try {
     const db = await p;
-    const rows = await db.select<CachedSheet[]>(
+    const rows = await db.select<CachedSheet>(
       "SELECT data_json, fetched_at FROM sheet_cache WHERE contact_type = $1",
       [contactType]
     );
