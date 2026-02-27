@@ -17,12 +17,18 @@ function isTauri(): boolean {
   return !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 }
 
-let dbPromise: ReturnType<typeof import("@tauri-apps/plugin-sql").Database.load> | null = null;
+/** Type minimal pour éviter de dépendre des exports TypeScript de @tauri-apps/plugin-sql (incompatibles en build). */
+interface TauriSqlDb {
+  select<T>(query: string, bindings?: unknown[]): Promise<T[]>;
+  execute(query: string, bindings?: unknown[]): Promise<unknown>;
+}
 
-function getDb() {
+let dbPromise: Promise<TauriSqlDb> | null = null;
+
+function getDb(): Promise<TauriSqlDb> | null {
   if (!dbPromise && isTauri()) {
     try {
-      const { Database } = require("@tauri-apps/plugin-sql");
+      const { Database } = require("@tauri-apps/plugin-sql") as { Database: { load: (path: string) => Promise<TauriSqlDb> } };
       dbPromise = Database.load(DB_NAME);
     } catch {
       dbPromise = null;
