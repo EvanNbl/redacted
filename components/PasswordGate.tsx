@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { devLog } from "@/lib/console-banner";
+import { getAppConfig } from "@/lib/supabase-data";
 
 interface PasswordGateProps {
   children: React.ReactNode;
@@ -19,12 +19,6 @@ export function PasswordGate({ children }: PasswordGateProps) {
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    // Vérifier si les variables de fallback sont présentes (build statique / Tauri)
-    const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
-    const sheetPass = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS;
-    devLog("PasswordGate", "env", { sheetId: !!sheetId, apiKey: !!apiKey, sheetPass: !!sheetPass });
-    // Vérifier si l'utilisateur est déjà authentifié dans cette session
     const authStatus = sessionStorage.getItem("app_authenticated");
     if (authStatus === "true") {
       setIsAuthenticated(true);
@@ -44,44 +38,9 @@ export function PasswordGate({ children }: PasswordGateProps) {
     setChecking(true);
     const pwd = password.trim();
     try {
-      let ok = false;
+      const storedPassword = await getAppConfig("password");
+      const ok = storedPassword != null && pwd === storedPassword;
 
-      // 1) Essayer la route API (uniquement en dev avec next dev — en prod statique / Tauri elle n'existe pas)
-      devLog("PasswordGate", "Tentative API check-password");
-      try {
-        const res = await fetch("/api/auth/check-password", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: pwd }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.ok === true) {
-          ok = true;
-          devLog("PasswordGate", "API OK");
-        }
-      } catch (apiErr) {
-        devLog("PasswordGate", "API erreur", apiErr);
-      }
-
-      // 2) Si l'API n'a pas validé (404 en prod, ou mot de passe refusé), fallback build statique / Tauri
-      if (!ok) {
-        const sheetId = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
-        const range = process.env.NEXT_PUBLIC_GOOGLE_SHEET_PASS ?? "MDP!A1:B2";
-        devLog("PasswordGate", "Fallback Sheet");
-        if (sheetId && apiKey && range) {
-          const params = new URLSearchParams({ key: apiKey });
-          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?${params.toString()}`;
-          const res = await fetch(url);
-          const json = await res.json().catch(() => ({}));
-          const values = json.values ?? [];
-          const stored = (values[0]?.[0] ?? "").toString().trim();
-          ok = stored.length > 0 && pwd === stored;
-          devLog("PasswordGate", "Fallback", res.ok ? "OK" : res.status, ok ? "connexion" : "refus");
-        }
-      }
-
-      devLog("PasswordGate", ok ? "Connexion OK" : "Refus");
       if (ok) {
         sessionStorage.setItem("app_authenticated", "true");
         setIsAuthenticated(true);
@@ -91,14 +50,13 @@ export function PasswordGate({ children }: PasswordGateProps) {
         setPassword("");
       }
     } catch (err) {
-      console.error("[PasswordGate] Erreur inattendue:", err);
+      console.error("[PasswordGate] Erreur:", err);
       setError("Erreur de connexion. Réessayez.");
     } finally {
       setChecking(false);
     }
   };
 
-  // Afficher un loader pendant la vérification initiale
   if (isChecking) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#07070b]">
@@ -107,24 +65,20 @@ export function PasswordGate({ children }: PasswordGateProps) {
     );
   }
 
-  // Si authentifié, afficher le contenu
   if (isAuthenticated) {
     return <>{children}</>;
   }
 
-  // Sinon, afficher le formulaire de connexion
   return (
     <div className="flex h-screen items-center justify-center bg-[#07070b]">
       <div className="w-full max-w-md px-6">
         <div className="rounded-2xl border border-white/10 bg-[#0a0a10]/90 backdrop-blur-xl p-8 shadow-2xl">
-          {/* Icon */}
           <div className="mb-6 flex justify-center">
             <div className="flex size-16 items-center justify-center rounded-2xl bg-violet-600/20">
               <Lock className="size-8 text-violet-400" />
             </div>
           </div>
 
-          {/* Title */}
           <h1 className="mb-2 text-center text-2xl font-semibold text-white">
             Accès sécurisé
           </h1>
@@ -132,7 +86,6 @@ export function PasswordGate({ children }: PasswordGateProps) {
             Veuillez entrer le mot de passe pour accéder à l'application
           </p>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <div className="relative">

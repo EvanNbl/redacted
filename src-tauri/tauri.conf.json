@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Projet Paris",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "identifier": "com.projetparis.dev",
   "build": {
     "frontendDist": "../out",
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://ipc.localhost https://ipc.localhost tauri://localhost https://api.github.com https://github.com https://sheets.googleapis.com https://oauth2.googleapis.com https://nominatim.openstreetmap.org https://cdn.jsdelivr.net;"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://ipc.localhost https://ipc.localhost tauri://localhost https://api.github.com https://github.com https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://eyjlpyvikbabuydjmmvj.supabase.co https://accounts.google.com https://www.googleapis.com;"
     }
   },
   "bundle": {

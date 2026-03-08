@@ -1,71 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
-import { ArrowLeft, ScrollText, RefreshCw, Loader2, Calendar } from "lucide-react";
+import { ScrollText, RefreshCw, Loader2, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { devLog, devWarn } from "@/lib/console-banner";
-
-const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
-const JOURNAL_RANGE =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_JOURNAL_RANGE ?? "Journal!A1:G500";
-
-const JOURNAL_CACHE_KEY = "journal-cache";
-const JOURNAL_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
-
-export type JournalRow = {
-  date: string;
-  time: string;
-  action: string;
-  typeContact: string;
-  ligneId: string;
-  pseudo: string;
-  details: string;
-};
-
-function parseJournalValues(values: string[][]): JournalRow[] {
-  if (!values?.length) return [];
-  const [_, ...rows] = values;
-  return rows.map((row) => ({
-    date: row[0] ?? "",
-    time: row[1] ?? "",
-    action: row[2] ?? "",
-    typeContact: row[3] ?? "",
-    ligneId: row[4] ?? "",
-    pseudo: row[5] ?? "",
-    details: row[6] ?? "",
-  }));
-}
-
-function getCachedJournal(): { rows: JournalRow[]; fetchedAt: number } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(JOURNAL_CACHE_KEY);
-    if (!raw) return null;
-    const { rows, fetchedAt } = JSON.parse(raw) as {
-      rows: JournalRow[];
-      fetchedAt: number;
-    };
-    if (!Array.isArray(rows) || !fetchedAt) return null;
-    if (Date.now() - fetchedAt > JOURNAL_CACHE_TTL_MS) return null;
-    return { rows, fetchedAt };
-  } catch {
-    return null;
-  }
-}
-
-function setCachedJournal(rows: JournalRow[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(
-      JOURNAL_CACHE_KEY,
-      JSON.stringify({ rows, fetchedAt: Date.now() })
-    );
-  } catch {
-    /* ignore */
-  }
-}
+import { fetchJournal, type JournalRow } from "@/lib/supabase-data";
+import { FadeIn, StaggerContainer, StaggerItem } from "@/components/FadeIn";
+import { PageGuard } from "@/components/PageGuard";
 
 function formatRelativeTime(fetchedAt: number): string {
   const s = Math.floor((Date.now() - fetchedAt) / 1000);
@@ -77,12 +17,16 @@ function formatRelativeTime(fetchedAt: number): string {
 }
 
 function ActionBadge({ action }: { action: string }) {
-  const style =
-    action === "Ajouté"
-      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-      : action === "Modifié"
-        ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-        : "bg-red-500/20 text-red-400 border-red-500/30";
+  const STYLES: Record<string, string> = {
+    "Ajouté": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    "Créé": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    "Modifié": "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    "Sauvegardé": "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    "Supprimé": "bg-red-500/20 text-red-400 border-red-500/30",
+    "Connexion": "bg-violet-500/20 text-violet-400 border-violet-500/30",
+    "Déconnexion": "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+  };
+  const style = STYLES[action] ?? "bg-zinc-500/20 text-zinc-400 border-zinc-500/30";
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${style}`}
@@ -90,6 +34,26 @@ function ActionBadge({ action }: { action: string }) {
       {action}
     </span>
   );
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("fr-FR");
+  } catch {
+    return iso;
+  }
+}
+
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return "";
+  }
 }
 
 export default function JournalPage() {
@@ -101,66 +65,18 @@ export default function JournalPage() {
   const mounted = useRef(true);
 
   const load = useCallback(async (silent = false) => {
-    if (!SHEET_ID || !SHEET_API_KEY) {
-      devLog("Journal page", "Config manquante");
-      setError("Configuration Google Sheets manquante.");
-      setLoading(false);
-      return;
-    }
-    const sheetName = (JOURNAL_RANGE.match(/^([^!]+)!/)?.[1] ?? "Journal").replace(
-      /^'|'$/g,
-      ""
-    );
     if (!silent) {
       setError(null);
       if (rows.length === 0) setLoading(true);
       else setRefreshing(true);
     }
     try {
-      const params = new URLSearchParams({ key: SHEET_API_KEY });
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(JOURNAL_RANGE)}?${params.toString()}`;
-      const res = await fetch(url);
+      const data = await fetchJournal();
       if (!mounted.current) return;
-      if (!res.ok) {
-        const body = await res.text();
-        devWarn("Journal page", "API", res.status, body.slice(0, 200));
-        if (res.status === 403) {
-          setError("Accès refusé au tableur. Vérifiez le partage et la clé API.");
-        } else if (res.status === 404) {
-          setError(
-            'La feuille "' +
-              sheetName +
-              '" n\'existe pas. Créez-la dans votre tableur avec les en-têtes: Date, Heure, Action, Type contact, Ligne/ID, Pseudo, Détails.'
-          );
-        } else if (res.status === 400) {
-          setError(
-            'La feuille "' +
-              sheetName +
-              '" est introuvable ou la plage est invalide. Créez une feuille "' +
-              sheetName +
-              '" avec les en-têtes: Date, Heure, Action, Type contact, Ligne/ID, Pseudo, Détails.'
-          );
-        } else {
-          setError(`Erreur ${res.status} lors de la lecture du journal.`);
-        }
-        if (!silent) setRows([]);
-        return;
-      }
-      const json: { values?: string[][] } = await res.json();
-      const values = json.values ?? [];
-      const parsed = parseJournalValues(values);
-      if (!mounted.current) return;
-      setRows(parsed);
+      setRows(data);
       setLastFetchedAt(Date.now());
-      setCachedJournal(parsed);
-      if (parsed.length === 0) {
-        devLog("Journal page", "Feuille vide", sheetName);
-      } else {
-        devLog("Journal page", "OK", sheetName, "→", parsed.length, "entrée(s)");
-      }
     } catch (e) {
       if (!mounted.current) return;
-      devWarn("Journal page", "Erreur réseau", e);
       if (!silent) {
         setError("Impossible de charger le journal.");
         setRows([]);
@@ -175,40 +91,23 @@ export default function JournalPage() {
 
   useEffect(() => {
     mounted.current = true;
-    const cached = getCachedJournal();
-    if (cached?.rows.length) {
-      setRows(cached.rows);
-      setLastFetchedAt(cached.fetchedAt);
-      setLoading(false);
-      setError(null);
-      void load(true);
-    } else {
-      void load(false);
-    }
-    return () => {
-      mounted.current = false;
-    };
+    void load(false);
+    return () => { mounted.current = false; };
   }, []);
 
   const displayRows = [...rows].reverse();
   const byDate = displayRows.reduce<Record<string, JournalRow[]>>((acc, r) => {
-    const d = r.date || "Sans date";
+    const d = formatDate(r.created_at) || "Sans date";
     if (!acc[d]) acc[d] = [];
     acc[d].push(r);
     return acc;
   }, {});
 
   return (
-    <div className="min-h-screen bg-[#07070b] text-zinc-100">
-      <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#0a0a10]/95 backdrop-blur-xl">
+    <PageGuard page="journal">
+    <div className="flex h-full flex-col overflow-hidden bg-[#07070b] text-zinc-100">
+      <header className="shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/95 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 max-w-6xl mx-auto">
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors rounded-lg px-2 py-1.5 -ml-2 hover:bg-white/5"
-          >
-            <ArrowLeft className="size-4" />
-            Retour
-          </Link>
           <div className="flex items-center gap-2.5">
             <div className="flex size-9 items-center justify-center rounded-lg bg-violet-600/20">
               <ScrollText className="size-5 text-violet-400" />
@@ -249,7 +148,7 @@ export default function JournalPage() {
         </div>
       </header>
 
-      <main className="p-4 max-w-6xl mx-auto">
+      <main className="flex-1 overflow-y-auto p-4 max-w-6xl mx-auto">
         {error && (
           <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 flex items-start gap-3">
             <span className="shrink-0 mt-0.5">⚠</span>
@@ -269,22 +168,14 @@ export default function JournalPage() {
             </div>
             <p className="text-zinc-400 font-medium">Aucune entrée dans le journal</p>
             <p className="mt-2 text-sm text-zinc-500 max-w-md mx-auto">
-              Les ajouts, modifications et suppressions de contacts seront enregistrés
-              ici une fois la feuille &quot;Journal&quot; créée dans votre tableur.
+              Les ajouts, modifications et suppressions de contacts seront enregistrés ici.
             </p>
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 mt-6 text-sm text-violet-400 hover:text-violet-300"
-            >
-              <ArrowLeft className="size-4" />
-              Retour à la carte
-            </Link>
           </div>
         ) : (
-          <div className="space-y-6">
+          <StaggerContainer staggerDelay={0.08} className="space-y-6">
             {Object.entries(byDate).map(([date, dateRows]) => (
-              <section key={date} className="space-y-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-2 sticky top-[57px] z-[1] py-2 bg-[#07070b]/90 backdrop-blur-sm -mx-1 px-2">
+              <StaggerItem key={date} className="space-y-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-2 py-2">
                   <Calendar className="size-3.5" />
                   {date}
                 </h2>
@@ -302,11 +193,11 @@ export default function JournalPage() {
                           <th className="text-left px-4 py-2.5 font-medium text-zinc-500 text-xs uppercase tracking-wider w-28">
                             Type
                           </th>
-                          <th className="text-left px-4 py-2.5 font-medium text-zinc-500 text-xs uppercase tracking-wider w-24">
-                            Ligne
-                          </th>
                           <th className="text-left px-4 py-2.5 font-medium text-zinc-500 text-xs uppercase tracking-wider">
                             Pseudo
+                          </th>
+                          <th className="text-left px-4 py-2.5 font-medium text-zinc-500 text-xs uppercase tracking-wider">
+                            Utilisateur
                           </th>
                           <th className="text-left px-4 py-2.5 font-medium text-zinc-500 text-xs uppercase tracking-wider min-w-[200px]">
                             Détails
@@ -316,23 +207,23 @@ export default function JournalPage() {
                       <tbody>
                         {dateRows.map((r, i) => (
                           <tr
-                            key={`${r.date}-${r.time}-${i}`}
+                            key={r.id ?? `${date}-${i}`}
                             className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors"
                           >
                             <td className="px-4 py-2.5 text-zinc-400 font-mono text-xs">
-                              {r.time || "—"}
+                              {formatTime(r.created_at) || "—"}
                             </td>
                             <td className="px-4 py-2.5">
                               <ActionBadge action={r.action} />
                             </td>
                             <td className="px-4 py-2.5 text-zinc-400 capitalize">
-                              {r.typeContact || "—"}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono text-zinc-500 text-xs">
-                              {r.ligneId || "—"}
+                              {r.contact_type || "—"}
                             </td>
                             <td className="px-4 py-2.5 font-medium text-white">
                               {r.pseudo || "—"}
+                            </td>
+                            <td className="px-4 py-2.5 text-zinc-400 text-xs">
+                              {r.user_email || "—"}
                             </td>
                             <td className="px-4 py-2.5 text-zinc-500 text-xs leading-relaxed max-w-md">
                               {r.details ? (
@@ -349,11 +240,12 @@ export default function JournalPage() {
                     </table>
                   </div>
                 </div>
-              </section>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerContainer>
         )}
       </main>
     </div>
+    </PageGuard>
   );
 }

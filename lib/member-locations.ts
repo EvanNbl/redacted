@@ -1,12 +1,13 @@
 /**
- * Parse le tableau Contacts (Google Sheets) et extrait les membres avec
+ * Parse les contacts Supabase et extrait les membres avec
  * une position géographique approximative (Pays, Ville) pour la carte.
  */
 
 import { COUNTRIES_WITH_CAPITALS } from "./countries-data";
+import type { ContactRow } from "./supabase-data";
 
 export type MemberLocation = {
-  /** Identifiant unique (généré ou sheet-{index}) */
+  /** UUID Supabase */
   id: string;
   pseudo: string;
   pays: string;
@@ -14,32 +15,32 @@ export type MemberLocation = {
   ville: string;
   latitude: number;
   longitude: number;
-  /** True si lat/lon viennent du Sheet ; false = fallback (capitale) à améliorer par géocodage */
+  /** True si lat/lon viennent de la DB ; false = fallback (capitale) */
   hasExactCoords: boolean;
-  /** Ligne brute pour tooltip (langues, référent, etc.) */
+  /** Champs bruts pour compatibilité avec MemberDetailPanel et exports */
   rawRow: Record<string, string>;
 };
 
-/** True si la colonne Lock du contact communication est true/oui/1 (case insensitive). */
+/** True si la colonne Lock du contact communication est true/oui/1 */
 export function isMemberLocked(m: MemberLocation): boolean {
-  const v = (m.rawRow["Lock"] ?? m.rawRow["lock"] ?? "").trim().toLowerCase();
+  const v = (m.rawRow["Lock"] ?? "").trim().toLowerCase();
   return v === "true" || v === "oui" || v === "1";
 }
 
 /** True si la NDA est signée (Oui). */
 export function isNdaSigned(m: MemberLocation): boolean {
-  const v = (m.rawRow["NDA Signée"] ?? m.rawRow["NDA Signee"] ?? "").trim().toLowerCase();
+  const v = (m.rawRow["NDA Signée"] ?? "").trim().toLowerCase();
   return v === "oui";
 }
 
-/** Libellé affiché sur la carte/globe : commercial = "Nom Prénom - Pseudo / Entreprise" (s'adapte aux champs remplis), communication = pseudo. */
+/** Libellé affiché : commercial = "Nom Prénom - Pseudo / Entreprise", communication = pseudo. */
 export function getMemberDisplayName(
   m: MemberLocation,
   contactType: "communication" | "commercial"
 ): string {
   if (contactType === "commercial") {
     const nom = (m.rawRow["Nom"] ?? "").trim();
-    const prenom = (m.rawRow["Prénom"] ?? m.rawRow["Prenom"] ?? "").trim();
+    const prenom = (m.rawRow["Prénom"] ?? "").trim();
     const pseudo = (m.pseudo ?? "").trim();
     const entreprise = (m.rawRow["Entreprise"] ?? "").trim();
     const namePart = [nom, prenom].filter(Boolean).join(" ").trim();
@@ -52,15 +53,7 @@ export function getMemberDisplayName(
   return m.pseudo?.trim() || "?";
 }
 
-/** Index des colonnes par nom d’en-tête (normalisé minuscule). */
-function getHeaderIndices(headers: string[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  headers.forEach((h, i) => {
-    const key = h.trim().toLowerCase().replace(/\s+/g, " ");
-    out[key] = i;
-  });
-  return out;
-}
+/* ── Geo helpers ─────────────────────────────────────── */
 
 function normalize(s: string): string {
   return s
@@ -128,7 +121,6 @@ function getCoords(pays: string, ville: string): [number, number] | null {
   return null;
 }
 
-/** Export pour créer un membre avec coordonnées (pays + ville). */
 export function getCoordsForMember(
   pays: string,
   ville: string
@@ -137,9 +129,103 @@ export function getCoordsForMember(
 }
 
 /**
- * À partir du tableau renvoyé par Google Sheets (headers + rows),
- * retourne la liste des membres avec coordonnées quand on peut les déduire.
+ * Construit le rawRow (Record<string, string>) à partir d'un ContactRow Supabase.
+ * Les clés correspondent aux anciens noms de colonnes Google Sheets
+ * pour rester compatible avec MemberDetailPanel et les exports CSV.
  */
+function buildRawRow(row: ContactRow): Record<string, string> {
+  return {
+    Pseudo: row.pseudo ?? "",
+    Entreprise: row.entreprise ?? "",
+    "Prénom": row.prenom ?? "",
+    Nom: row.nom ?? "",
+    "ID Discord": row.id_discord ?? "",
+    Email: row.email ?? "",
+    Pays: row.pays ?? "",
+    "Region/Etat": row.region ?? "",
+    Ville: row.ville ?? "",
+    "Langue(s) parlée(s)": row.langues ?? "",
+    "NDA Signée": row.nda_signee ?? "",
+    Referent: row.referent ?? "",
+    Notes: row.notes ?? "",
+    Lock: row.lock ?? "",
+    "Contacté": row.contacter ?? "",
+    Twitter: row.twitter ?? "",
+    Instagram: row.instagram ?? "",
+    Tiktok: row.tiktok ?? "",
+    Youtube: row.youtube ?? "",
+    Linkedin: row.linkedin ?? "",
+    Twitch: row.twitch ?? "",
+    Autre: row.autre ?? "",
+  };
+}
+
+/**
+ * Convertit les lignes Supabase (ContactRow[]) en MemberLocation[].
+ */
+export function contactRowsToMembers(
+  rows: ContactRow[],
+  contactType: "communication" | "commercial"
+): MemberLocation[] {
+  const result: MemberLocation[] = [];
+
+  for (const row of rows) {
+    let pseudo = (row.pseudo ?? "").trim();
+
+    if (contactType === "commercial") {
+      const prenom = (row.prenom ?? "").trim();
+      const nom = (row.nom ?? "").trim();
+      const entreprise = (row.entreprise ?? "").trim();
+      if (!pseudo && (prenom || nom)) {
+        pseudo = [prenom, nom].filter(Boolean).join(" ").trim();
+      }
+      if (!pseudo && entreprise) pseudo = entreprise;
+      if (!pseudo) continue;
+    } else {
+      if (!pseudo) continue;
+    }
+
+    const pays = (row.pays ?? "").trim();
+    const region = (row.region ?? "").trim();
+    const ville = (row.ville ?? "").trim();
+
+    const rawLat = row.latitude;
+    const rawLon = row.longitude;
+
+    let latitude: number;
+    let longitude: number;
+    let hasExactCoords: boolean;
+
+    if (rawLat != null && rawLon != null && !isNaN(rawLat) && !isNaN(rawLon) && (rawLat !== 0 || rawLon !== 0)) {
+      latitude = rawLat;
+      longitude = rawLon;
+      hasExactCoords = true;
+    } else {
+      if (!pays) continue;
+      const coords = getCoords(pays, ville);
+      if (!coords) continue;
+      latitude = coords[0];
+      longitude = coords[1];
+      hasExactCoords = false;
+    }
+
+    result.push({
+      id: row.id,
+      pseudo,
+      pays,
+      region,
+      ville,
+      latitude,
+      longitude,
+      hasExactCoords,
+      rawRow: buildRawRow(row),
+    });
+  }
+
+  return result;
+}
+
+// Legacy compat: kept for the migration script
 export function parseMembersFromTable(
   headers: string[],
   rows: string[][],
@@ -147,7 +233,10 @@ export function parseMembersFromTable(
 ): MemberLocation[] {
   if (headers.length === 0 || rows.length === 0) return [];
 
-  const idx = getHeaderIndices(headers);
+  const idx: Record<string, number> = {};
+  headers.forEach((h, i) => {
+    idx[h.trim().toLowerCase().replace(/\s+/g, " ")] = i;
+  });
   const pseudoCol = idx["pseudo"] ?? 0;
   const entrepriseCol = idx["entreprise"] ?? -1;
   const prenomCol = idx["prénom"] ?? idx["prenom"] ?? -1;
@@ -163,33 +252,29 @@ export function parseMembersFromTable(
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
     let pseudo = (row[pseudoCol] ?? "").trim();
-    
-    // Pour les commerciaux, construire le pseudo à partir de Prénom, Nom ou Entreprise si besoin
+
     if (contactType === "commercial") {
       const prenom = prenomCol >= 0 ? (row[prenomCol] ?? "").trim() : "";
       const nom = nomCol >= 0 ? (row[nomCol] ?? "").trim() : "";
       const entreprise = entrepriseCol >= 0 ? (row[entrepriseCol] ?? "").trim() : "";
-      if (!pseudo && (prenom || nom)) {
-        pseudo = [prenom, nom].filter(Boolean).join(" ").trim();
-      }
+      if (!pseudo && (prenom || nom)) pseudo = [prenom, nom].filter(Boolean).join(" ").trim();
       if (!pseudo && entreprise) pseudo = entreprise;
-      if (!pseudo) continue; // Skip si pas de pseudo/prénom/nom/entreprise
+      if (!pseudo) continue;
     } else {
-      if (!pseudo) continue; // Skip si pas de pseudo pour communication
+      if (!pseudo) continue;
     }
-    
+
     const pays = paysCol >= 0 ? (row[paysCol] ?? "").trim() : "";
     const region = regionCol >= 0 ? (row[regionCol] ?? "").trim() : "";
     const ville = villeCol >= 0 ? (row[villeCol] ?? "").trim() : "";
 
-    // Priorité : coordonnées exactes du Sheet, sinon géocodage
     const rawLat = latCol >= 0 ? parseFloat(row[latCol] ?? "") : NaN;
     const rawLon = lonCol >= 0 ? parseFloat(row[lonCol] ?? "") : NaN;
 
     let latitude: number;
     let longitude: number;
-
     let hasExactCoords: boolean;
+
     if (!isNaN(rawLat) && !isNaN(rawLon)) {
       latitude = rawLat;
       longitude = rawLon;
@@ -204,22 +289,12 @@ export function parseMembersFromTable(
     }
 
     const rawRow: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      rawRow[h.trim()] = row[i] ?? "";
-    });
+    headers.forEach((h, i) => { rawRow[h.trim()] = row[i] ?? ""; });
 
     result.push({
       id: `sheet-${rowIndex}`,
-      pseudo,
-      pays,
-      region,
-      ville,
-      latitude,
-      longitude,
-      hasExactCoords,
-      rawRow,
+      pseudo, pays, region, ville, latitude, longitude, hasExactCoords, rawRow,
     });
   }
-
   return result;
 }

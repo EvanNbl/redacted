@@ -45,6 +45,8 @@ export interface MemberDetailPanelProps {
   saving?: boolean;
   deleting?: boolean;
   contactType?: "communication" | "commercial";
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 function getFromRawRow(
@@ -130,6 +132,8 @@ export function MemberDetailPanel({
   saving = false,
   deleting = false,
   contactType = "communication",
+  canEdit = true,
+  canDelete = true,
 }: MemberDetailPanelProps) {
   const isNew = member === null;
   const isLocked =
@@ -137,6 +141,7 @@ export function MemberDetailPanel({
     member != null &&
     contactType === "communication" &&
     isMemberLocked(member);
+  const readOnly = isLocked || !canEdit;
   const [form, setForm] = useState(emptyForm);
   const [coordsError, setCoordsError] = useState<string | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<
@@ -219,7 +224,7 @@ export function MemberDetailPanel({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLocked) return;
+    if (readOnly) return;
 
     // Validation pour les commerciaux : au moins un des champs identité (Prénom, Nom, Pseudo, Entreprise)
     if (contactType === "commercial") {
@@ -350,7 +355,7 @@ export function MemberDetailPanel({
   };
 
   const handleDeleteClick = () => {
-    if (isLocked) return;
+    if (readOnly || !canDelete) return;
     setShowDeleteConfirm(true);
   };
 
@@ -578,7 +583,7 @@ export function MemberDetailPanel({
                 )}
                 <Switch
                   checked={isLocked}
-                  disabled={saving}
+                  disabled={saving || !canEdit}
                   onCheckedChange={async (checked) => {
                     const newLock = checked ? "true" : "false";
                     const updated: MemberLocation = {
@@ -628,7 +633,7 @@ export function MemberDetailPanel({
                           }
                           className={inputClass}
                           placeholder="Nom"
-                          disabled={isLocked}
+                          disabled={readOnly}
                         />
                       </div>
                       <div className="space-y-1">
@@ -644,7 +649,7 @@ export function MemberDetailPanel({
                           }
                           className={inputClass}
                           placeholder="Prénom"
-                          disabled={isLocked}
+                          disabled={readOnly}
                         />
                       </div>
                     </div>
@@ -662,7 +667,7 @@ export function MemberDetailPanel({
                           }
                           className={inputClass}
                           placeholder="Pseudo"
-                          disabled={isLocked}
+                          disabled={readOnly}
                         />
                       </div>
                       <div className="space-y-1">
@@ -678,7 +683,7 @@ export function MemberDetailPanel({
                           }
                           className={inputClass}
                           placeholder="Nom de l'entreprise"
-                          disabled={isLocked}
+                          disabled={readOnly}
                         />
                       </div>
                     </div>
@@ -698,7 +703,7 @@ export function MemberDetailPanel({
                         }
                         className={inputClass}
                         placeholder="Nom ou pseudo"
-                        disabled={isLocked}
+                        disabled={readOnly}
                       />
                     </div>
                     <div className="space-y-1">
@@ -715,7 +720,7 @@ export function MemberDetailPanel({
                             idDiscord: e.target.value,
                           }))
                         }
-                        disabled={isLocked}
+                        disabled={readOnly}
                         className={inputClass}
                         placeholder="Optionnel"
                       />
@@ -737,7 +742,7 @@ export function MemberDetailPanel({
                           idDiscord: e.target.value,
                         }))
                       }
-                      disabled={isLocked}
+                      disabled={readOnly}
                       className={inputClass}
                       placeholder="Optionnel"
                     />
@@ -760,9 +765,9 @@ export function MemberDetailPanel({
                       }
                       className={cn(inputClass, "flex-1")}
                       placeholder="exemple@email.com"
-                      disabled={isLocked}
+                      disabled={readOnly}
                     />
-                    {form.email && !isLocked && (
+                    {form.email && !readOnly && (
                       <>
                         <Button
                           type="button"
@@ -811,7 +816,7 @@ export function MemberDetailPanel({
                     }}
                     onSelect={handleAddressSelect}
                     placeholder="Tapez une adresse, ville…"
-                    disabled={isLocked}
+                    disabled={readOnly}
                   />
                   <p className="text-[10px] text-zinc-600">
                     Sélectionnez une suggestion pour un placement précis sur la carte.
@@ -832,7 +837,7 @@ export function MemberDetailPanel({
                         setGeocodedCoords(null);
                       }}
                       placeholder="Sélectionner"
-                      disabled={isLocked}
+                      disabled={readOnly}
                     />
                   </div>
                   <div className="space-y-1">
@@ -848,7 +853,7 @@ export function MemberDetailPanel({
                       }
                       className={inputClass}
                       placeholder="ex. Wallonie"
-                      disabled={isLocked}
+                      disabled={readOnly}
                     />
                   </div>
                 </div>
@@ -883,7 +888,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       placeholder="Sélectionner"
-                      disabled={isLocked}
+                      disabled={readOnly}
                     />
                   </div>
                   <div className="space-y-1">
@@ -900,7 +905,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       className={selectClass}
-                      disabled={isLocked}
+                      disabled={readOnly}
                     >
                       {NDA_OPTIONS.filter((opt) => opt !== "").map((opt) => (
                         <option key={opt} value={opt}>
@@ -923,7 +928,7 @@ export function MemberDetailPanel({
                         }))
                       }
                       className={selectClass}
-                      disabled={isLocked}
+                      disabled={readOnly}
                     >
                       <option value="">Sélectionner</option>
                       {form.referent &&
@@ -953,7 +958,7 @@ export function MemberDetailPanel({
                     </div>
                     <Switch
                       checked={form.contacter === "Oui"}
-                      disabled={isLocked}
+                      disabled={readOnly}
                       onCheckedChange={(checked) =>
                         setForm((f) => ({
                           ...f,
@@ -975,7 +980,7 @@ export function MemberDetailPanel({
                       setForm((f) => ({ ...f, notes: e.target.value }))
                     }
                     rows={2}
-                    disabled={isLocked}
+                    disabled={readOnly}
                     className={cn(
                       "w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none",
                       "focus-visible:border-violet-500/50 focus-visible:ring-2 focus-visible:ring-violet-500/40"
@@ -1000,7 +1005,7 @@ export function MemberDetailPanel({
                     selected={reseauxSelectionnes}
                     onChange={handleReseauxSelectionChange}
                     placeholder="Sélectionner des réseaux sociaux"
-                    disabled={isLocked}
+                    disabled={readOnly}
                   />
                 </div>
 
@@ -1026,7 +1031,7 @@ export function MemberDetailPanel({
                         >
                           {reseau}
                         </label>
-                        {!isLocked && (
+                        {!readOnly && (
                         <button
                           type="button"
                           onClick={() => handleRemoveReseau(reseau)}
@@ -1050,9 +1055,9 @@ export function MemberDetailPanel({
                               ? "URL complète (ex: https://...)"
                               : `URL ou identifiant ${reseau}`
                           }
-                          disabled={isLocked}
+                          disabled={readOnly}
                         />
-                        {getReseauUrl(reseau, value) && !isLocked && (
+                        {getReseauUrl(reseau, value) && !readOnly && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -1147,7 +1152,7 @@ export function MemberDetailPanel({
             {/* Footer */}
             <div className="shrink-0 border-t border-white/[0.06] bg-black/30 px-5 py-3">
               <div className="flex gap-3">
-                {!isNew && onDelete && !isLocked && (
+                {!isNew && onDelete && !readOnly && canDelete && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -1163,11 +1168,11 @@ export function MemberDetailPanel({
                   variant="ghost"
                   onClick={onClose}
                   disabled={saving || deleting}
-                  className={isLocked ? "flex-1" : "flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"}
+                  className={readOnly ? "flex-1" : "flex-1 text-zinc-400 hover:bg-white/10 hover:text-white"}
                 >
-                  {isLocked ? "Fermer" : "Annuler"}
+                  {readOnly ? "Fermer" : "Annuler"}
                 </Button>
-                {!isLocked && (
+                {!readOnly && (
                   <Button
                     type="submit"
                     disabled={saving || deleting}

@@ -3,24 +3,26 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { parseMembersFromTable, isMemberLocked, getMemberDisplayName } from "@/lib/member-locations";
+import { contactRowsToMembers, isMemberLocked, getMemberDisplayName } from "@/lib/member-locations";
 import { enrichMembersWithNominatim } from "@/lib/geocode";
 import { MemberDetailPanel } from "@/components/MemberDetailPanel";
 import { UpdateChecker } from "@/components/UpdateChecker";
-import { LoadingScreen } from "@/components/LoadingScreen";
 import { LanguageMultiSelect } from "@/components/LanguageMultiSelect";
 import { CountryMultiSelect } from "@/components/CountryMultiSelect";
 import { ReferentMultiSelect } from "@/components/ReferentMultiSelect";
-import { PasswordGate } from "@/components/PasswordGate";
 import {
-  isClientSheetsAvailable,
-  appendRowToSheet,
-  updateRowInSheet,
-  deleteRowInSheet,
+  fetchContacts,
+  insertContact,
+  updateContact,
+  deleteContact,
   appendJournalEntry,
-} from "@/lib/sheets-client";
-import { getCachedSheet, setCachedSheet, isTauriEnv } from "@/lib/sheet-cache";
-import { logAppBanner, devLog } from "@/lib/console-banner";
+  type ContactRow,
+} from "@/lib/supabase-data";
+import { isTauriEnv } from "@/lib/sheet-cache";
+import { devLog } from "@/lib/console-banner";
+import { PageGuard } from "@/components/PageGuard";
+import { usePermission } from "@/hooks/usePermission";
+import { useAuth } from "@/lib/auth-context";
 
 const MemberMap = dynamic(
   () => import("@/components/MemberMap").then((m) => ({ default: m.MemberMap })),
@@ -28,7 +30,6 @@ const MemberMap = dynamic(
 );
 
 import type { MemberLocation } from "@/lib/member-locations";
-import Link from "next/link";
 import {
   RefreshCw,
   Users,
@@ -43,7 +44,6 @@ import {
   MapPin,
   PanelLeftClose,
   PanelLeftOpen,
-  ScrollText,
   FileSignature,
   MailCheck,
   Mail,
@@ -61,16 +61,15 @@ import {
 
 /* ── Types ───────────────────────────────────────────────── */
 
-type ContactsTable = { headers: string[]; rows: string[][] };
-
 interface Filters {
   pays: string[]; // Tableau de pays sélectionnés
   nda: string;
   referents: string[]; // Tableau de référents sélectionnés
   langues: string[]; // Tableau de langues sélectionnées
+  contacter: string; // "" | "Oui" | "Non"
 }
 
-const emptyFilters: Filters = { pays: [], nda: "", referents: [], langues: [] };
+const emptyFilters: Filters = { pays: [], nda: "", referents: [], langues: [], contacter: "" };
 
 export type SortOption = "name" | "pays" | "nda" | "date" | "recent";
 
@@ -94,10 +93,10 @@ function getMemberDateAdded(m: MemberLocation): number {
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
-/** Index de ligne (sheet-N) pour tri "récent en premier". */
+/** Pour le tri "récent en premier" on se base sur l'ordre d'insertion (position dans la liste). */
+let _memberIndexMap: Map<string, number> | null = null;
 function getMemberRowIndex(m: MemberLocation): number {
-  const match = m.id.match(/^sheet-(\d+)$/);
-  return match ? parseInt(match[1], 10) : 0;
+  return _memberIndexMap?.get(m.id) ?? 0;
 }
 
 function sortMembersList(
@@ -138,19 +137,10 @@ function sortMembersList(
 
 /* ── Config ──────────────────────────────────────────────── */
 
-const SHEET_ID = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_SPREADSHEET_ID;
-const SHEET_RANGE =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE ?? "Tableau!A1:Z1000";
-const SHEET_RANGE_COM =
-  process.env.NEXT_PUBLIC_GOOGLE_SHEETS_RANGE_COM ?? "Commercial!A1:Z1000";
-const SHEET_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_API_KEY;
-const useClientApi = isClientSheetsAvailable();
-const SHEET_CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 min
 
-/** Cache persistant au niveau module : survit à la navigation (ex. Retour depuis /journal). */
-let globalSheetCache: {
+let globalCache: {
   contactType: ContactType;
-  data: ContactsTable;
   members: MemberLocation[];
   fetchedAt: number;
 } | null = null;
@@ -220,6 +210,17 @@ function applyFilters(
     });
   }
 
+  // Contacté filter (Oui / Non)
+  if (filters.contacter) {
+    const contacterVal = filters.contacter.trim().toLowerCase();
+    result = result.filter((m) => {
+      const v = (m.rawRow["Contacté"] ?? m.rawRow["Contacter"] ?? "").trim().toLowerCase();
+      if (contacterVal === "oui") return v === "oui";
+      if (contacterVal === "non") return v !== "oui";
+      return true;
+    });
+  }
+
   return result;
 }
 
@@ -239,7 +240,8 @@ function uniqueValues(
 /* ── Component ───────────────────────────────────────────── */
 
 export default function Home() {
-  const [data, setData] = useState<ContactsTable | null>(null);
+  const { profile } = useAuth();
+  const { canEdit, canDelete } = usePermission("contacts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -252,7 +254,6 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [isTauri, setIsTauri] = useState(false);
-  const [firstLoad, setFirstLoad] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [contactType, setContactType] = useState<ContactType>("communication");
 
@@ -267,179 +268,78 @@ export default function Home() {
     if (typeof window === "undefined") return;
     const isTauriApp = !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     setIsTauri(isTauriApp);
-    logAppBanner({
-      sheetRange: SHEET_RANGE,
-      sheetRangeCom: SHEET_RANGE_COM,
-      useClientApi,
-      hasServiceAccountKey: !!process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_KEY,
-      isTauri: isTauriApp,
-    });
   }, []);
 
-  /* ── Cache sheet (1–2 min) ────────────────────────────── */
-  const sheetCacheRef = useRef<{
+  /* ── Load contacts from Supabase ──────────────────────── */
+  const cacheRef = useRef<{
     contactType: ContactType;
-    data: ContactsTable;
     members: MemberLocation[];
     fetchedAt: number;
   } | null>(null);
 
-  const loadFromSheet = useCallback(
+  const loadContacts = useCallback(
     async (forceRefresh = false): Promise<MemberLocation[]> => {
-      if (!SHEET_ID || !SHEET_API_KEY) {
-        setError(
-          "Configuration Google Sheets manquante. Vérifiez les variables d'environnement."
-        );
-        setLoading(false);
-        return [];
-      }
-
-      const cache = sheetCacheRef.current ?? globalSheetCache;
+      const cache = cacheRef.current ?? globalCache;
       const now = Date.now();
-      const useMemoryCache =
+      if (
         !forceRefresh &&
         cache &&
         cache.contactType === contactType &&
-        now - cache.fetchedAt < SHEET_CACHE_TTL_MS;
-
-      if (useMemoryCache && cache) {
-        devLog("loadFromSheet", "Cache mémoire", contactType, "→", cache.members.length, "membres");
-        sheetCacheRef.current = cache;
-        setData(cache.data);
+        now - cache.fetchedAt < CACHE_TTL_MS
+      ) {
+        devLog("loadContacts", "Cache mémoire", contactType, "→", cache.members.length);
+        cacheRef.current = cache;
         setMembers(cache.members);
         setError(null);
         setLoading(false);
         return cache.members;
       }
 
-      // En mode Tauri : afficher tout de suite le cache SQLite si dispo (ouverture instantanée hors-ligne)
-      let usedLocalCache = false;
-      if (isTauriEnv() && !forceRefresh) {
-        try {
-          const cached = await getCachedSheet(contactType);
-          if (cached?.data_json) {
-            const parsed = JSON.parse(cached.data_json) as {
-              headers: string[];
-              rows: string[][];
-            };
-            if (parsed.headers && Array.isArray(parsed.rows)) {
-              const table = { headers: parsed.headers, rows: parsed.rows };
-              const members = parseMembersFromTable(
-                parsed.headers,
-                parsed.rows,
-                contactType
-              );
-              devLog("loadFromSheet", "Cache SQLite", contactType, "→", members.length, "membres");
-              setData(table);
-              setMembers(members);
-              setError(null);
-              const cacheEntry = {
-                contactType,
-                data: table,
-                members,
-                fetchedAt: cached.fetched_at,
-              };
-              sheetCacheRef.current = cacheEntry;
-              globalSheetCache = cacheEntry;
-              usedLocalCache = true;
-            }
-          }
-        } catch (_) {
-          // Ignorer les erreurs de cache local
-        }
-      }
-
       setLoading(true);
-      if (!usedLocalCache) setError(null);
-
+      setError(null);
       try {
-        const range = contactType === "commercial" ? SHEET_RANGE_COM : SHEET_RANGE;
-        const params = new URLSearchParams({ key: SHEET_API_KEY });
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
-          range
-        )}?${params.toString()}`;
-        devLog("loadFromSheet", "Fetch réseau", contactType, forceRefresh ? "(force)" : "");
-
-        const res = await fetch(url);
-
-        if (!res.ok) {
-          const text = await res.text();
-          if (res.status === 403) {
-            setError(
-              "Accès refusé (403). Vérifiez : 1) L'API Google Sheets est activée. 2) Le tableur est partagé. 3) La clé API est correcte."
-            );
-            if (!usedLocalCache) setLoading(false);
-            return usedLocalCache ? (sheetCacheRef.current?.members ?? []) : [];
-          }
-          throw new Error(
-            `Erreur API Google Sheets (${res.status}): ${text}`
-          );
-        }
-
-        const json: { values?: string[][] } = await res.json();
-        const values = json.values ?? [];
-
-        if (values.length === 0) {
-          const empty = { headers: [] as string[], rows: [] as string[][] };
-          setData(empty);
-          setMembers([]);
-          const emptyCache = { contactType, data: empty, members: [], fetchedAt: Date.now() };
-          sheetCacheRef.current = emptyCache;
-          globalSheetCache = emptyCache;
-          if (isTauriEnv()) {
-            setCachedSheet(contactType, JSON.stringify(empty), Date.now());
-          }
-          setLoading(false);
-          return [];
-        }
-
-        const [headers, ...rows] = values;
-        const parsed = parseMembersFromTable(headers, rows, contactType);
-        const table = { headers, rows };
-        setData(table);
+        const rows = await fetchContacts(contactType);
+        const parsed = contactRowsToMembers(rows, contactType);
         setMembers(parsed);
-        const fetchedAt = Date.now();
-        const cacheEntry = { contactType, data: table, members: parsed, fetchedAt };
-        sheetCacheRef.current = cacheEntry;
-        globalSheetCache = cacheEntry;
-        if (isTauriEnv()) {
-          setCachedSheet(contactType, JSON.stringify(table), fetchedAt);
-        }
-        devLog("loadFromSheet", "Réseau OK", contactType, "→", parsed.length, "membres");
+        const entry = { contactType, members: parsed, fetchedAt: Date.now() };
+        cacheRef.current = entry;
+        globalCache = entry;
+        devLog("loadContacts", "OK", contactType, "→", parsed.length);
         setLoading(false);
         return parsed;
       } catch (e) {
-        devLog("loadFromSheet", "Erreur réseau", e);
-        if (!usedLocalCache) {
-          setError("Impossible de charger les contacts depuis Google Sheets.");
-        } else {
-          devLog("loadFromSheet", "Affichage depuis le cache local");
-        }
+        devLog("loadContacts", "Erreur", e);
+        setError("Impossible de charger les contacts.");
         setLoading(false);
-        return usedLocalCache ? (sheetCacheRef.current?.members ?? []) : [];
+        return cacheRef.current?.members ?? [];
       }
     },
     [contactType]
   );
 
-  /** Force le rechargement en ignorant le cache. */
   const refreshFromSheet = useCallback(() => {
-    return loadFromSheet(true);
-  }, [loadFromSheet]);
+    return loadContacts(true);
+  }, [loadContacts]);
 
   useEffect(() => {
-    void loadFromSheet();
-  }, [loadFromSheet]);
+    void loadContacts();
+  }, [loadContacts]);
 
-  // Recharger les données quand le type de contact change
   useEffect(() => {
     setPanelOpen(false);
     setSelectedMember(null);
-    setMembers([]); // Réinitialiser les membres pour éviter l'affichage des anciens membres
-    setSearchQuery(""); // Réinitialiser la recherche
-    setFilters(emptyFilters); // Réinitialiser les filtres
-    void loadFromSheet();
+    setMembers([]);
+    setSearchQuery("");
+    setFilters(emptyFilters);
+    void loadContacts();
   }, [contactType]);
+
+  /* ── Build index map for "recent" sort ────────────────── */
+  useEffect(() => {
+    const map = new Map<string, number>();
+    members.forEach((m, i) => map.set(m.id, i));
+    _memberIndexMap = map;
+  }, [members]);
 
   /* ── Enrichissement géocodage (ville/pays → coordonnées réelles) ── */
   const enrichingRef = useRef(false);
@@ -556,12 +456,13 @@ export default function Home() {
     let c = 0;
     if (filters.pays.length > 0) c++;
     if (filters.nda) c++;
+    if (filters.contacter) c++;
     if (filters.referents.length > 0) c++;
     if (filters.langues.length > 0) c++;
     return c;
   }, [filters]);
 
-  const hasData = data && data.headers.length > 0;
+  const hasData = !loading && members.length >= 0 && !error;
   const showMap = hasData && !error;
   const isEmpty = hasData && members.length === 0;
   const noResults =
@@ -596,168 +497,83 @@ export default function Home() {
 
   const handleSaveMember = useCallback(
     async (updated: MemberLocation) => {
-      if (updated.id.startsWith("sheet-")) {
-        const previous = members.find((m) => m.id === updated.id) ?? null;
-        setSaving(true);
-        setSaveError(null);
-        try {
-          const memberData = {
-            pseudo: updated.pseudo,
-            entreprise: updated.rawRow["Entreprise"] ?? "",
-            prenom: updated.rawRow["Prénom"] ?? "",
-            nom: updated.rawRow["Nom"] ?? "",
-            idDiscord: updated.rawRow["ID Discord"] ?? "",
-            email: updated.rawRow["Email"] ?? "",
-            pays: updated.pays,
-            ville: updated.ville,
-            region: updated.region,
-            langues: updated.rawRow["Langue(s) parlée(s)"] ?? "",
-            ndaSignee: updated.rawRow["NDA Signée"] ?? "",
-            referent: updated.rawRow["Referent"] ?? "",
-            notes: updated.rawRow["Notes"] ?? "",
-            latitude: String(updated.latitude),
-            longitude: String(updated.longitude),
-            lock: updated.rawRow["Lock"] ?? updated.rawRow["lock"] ?? "",
-            twitter: updated.rawRow["Twitter"] ?? "",
-            instagram: updated.rawRow["Instagram"] ?? "",
-            tiktok: updated.rawRow["Tiktok"] ?? "",
-            youtube: updated.rawRow["Youtube"] ?? "",
-            linkedin: updated.rawRow["Linkedin"] ?? "",
-            twitch: updated.rawRow["Twitch"] ?? "",
-            autre: updated.rawRow["Autre"] ?? "",
-            // Champ "contacté" : on lit indifféremment les 2 variantes
-            contacter:
-              updated.rawRow["Contacté"] ??
-              updated.rawRow["Contacter"] ??
-              "",
+      const previous = members.find((m) => m.id === updated.id) ?? null;
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await updateContact(updated.id, {
+          pseudo: updated.pseudo,
+          entreprise: updated.rawRow["Entreprise"] ?? "",
+          prenom: updated.rawRow["Prénom"] ?? "",
+          nom: updated.rawRow["Nom"] ?? "",
+          id_discord: updated.rawRow["ID Discord"] ?? "",
+          email: updated.rawRow["Email"] ?? "",
+          pays: updated.pays,
+          ville: updated.ville,
+          region: updated.region,
+          langues: updated.rawRow["Langue(s) parlée(s)"] ?? "",
+          nda_signee: updated.rawRow["NDA Signée"] ?? "",
+          referent: updated.rawRow["Referent"] ?? "",
+          notes: updated.rawRow["Notes"] ?? "",
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+          lock: updated.rawRow["Lock"] ?? "",
+          contacter: updated.rawRow["Contacté"] ?? updated.rawRow["Contacter"] ?? "",
+          twitter: updated.rawRow["Twitter"] ?? "",
+          instagram: updated.rawRow["Instagram"] ?? "",
+          tiktok: updated.rawRow["Tiktok"] ?? "",
+          youtube: updated.rawRow["Youtube"] ?? "",
+          linkedin: updated.rawRow["Linkedin"] ?? "",
+          twitch: updated.rawRow["Twitch"] ?? "",
+          autre: updated.rawRow["Autre"] ?? "",
+        });
+
+        devLog("handleSaveMember", "Mise à jour OK");
+
+        let details: string | undefined;
+        if (previous) {
+          const changes: string[] = [];
+          const addChange = (label: string, before: string | null | undefined, after: string | null | undefined) => {
+            const b = (before ?? "").trim();
+            const a = (after ?? "").trim();
+            if (b === a) return;
+            changes.push(`${label}: "${b || "—"}" → "${a || "—"}"`);
           };
-
-          if (useClientApi) {
-            // Client-side direct API call
-            const result = await updateRowInSheet(updated.id, memberData, contactType);
-            if (!result.ok) {
-              setSaveError(
-                result.error ?? "Erreur lors de l'enregistrement."
-              );
-              throw new Error(result.error);
-            }
-          } else {
-            // Dev server API route fallback
-            const res = await fetch("/api/sheets/update", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                memberId: updated.id,
-                contactType,
-                ...memberData,
-              }),
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              setSaveError(
-                json.error ??
-                  `Erreur ${res.status} lors de l'enregistrement.`
-              );
-              throw new Error(json.error);
-            }
-          }
-          devLog("handleSaveMember", "Mise à jour OK → journal + refresh");
-          if (useClientApi) {
-            let details: string | undefined;
-            if (previous) {
-              const changes: string[] = [];
-              const addChange = (
-                label: string,
-                before: string | null | undefined,
-                after: string | null | undefined
-              ) => {
-                const b = (before ?? "").trim();
-                const a = (after ?? "").trim();
-                if (b === a) return;
-                const from = b || "—";
-                const to = a || "—";
-                changes.push(`${label}: "${from}" → "${to}"`);
-              };
-
-              addChange("Pseudo", previous.pseudo, updated.pseudo);
-              addChange("Ville", previous.ville, updated.ville);
-              addChange("Pays", previous.pays, updated.pays);
-              addChange(
-                "NDA",
-                (previous.rawRow["NDA Signée"] ??
-                  previous.rawRow["NDA Signee"] ??
-                  "") as string,
-                (updated.rawRow["NDA Signée"] ??
-                  updated.rawRow["NDA Signee"] ??
-                  "") as string
-              );
-              addChange(
-                "Référent",
-                (previous.rawRow["Referent"] ??
-                  previous.rawRow["Référent"] ??
-                  "") as string,
-                (updated.rawRow["Referent"] ??
-                  updated.rawRow["Référent"] ??
-                  "") as string
-              );
-              addChange(
-                "Contacté",
-                (previous.rawRow["Contacté"] ??
-                  previous.rawRow["Contacter"] ??
-                  "") as string,
-                (updated.rawRow["Contacté"] ??
-                  updated.rawRow["Contacter"] ??
-                  "") as string
-              );
-
-              const prevNotes = String(previous.rawRow["Notes"] ?? "").trim();
-              const nextNotes = String(updated.rawRow["Notes"] ?? "").trim();
-              if (prevNotes !== nextNotes) {
-                changes.push("Notes: modifiées");
-              }
-
-              if (changes.length > 0) {
-                details = changes.join(" | ");
-              }
-            }
-
-            void appendJournalEntry("Modifié", contactType, {
-              memberId: updated.id,
-              pseudo: getMemberDisplayName(updated, contactType),
-              details,
-            });
-          }
-
-          setMembers((prev) =>
-            prev.map((m) => (m.id === updated.id ? updated : m))
-          );
-          setSelectedMember(updated);
-          const freshMembers = await loadFromSheet(true);
-          setSelectedMember((prev) =>
-            prev && freshMembers.length
-              ? (freshMembers.find((m) => m.id === prev!.id) ?? prev)
-              : prev
-          );
-        } catch {
-          /* saveError déjà positionné — actualiser pour que le switch reflète l'état réel et permettre de réessayer */
-          const savedId = updated.id;
-          devLog("handleSaveMember", "Erreur → rechargement sheet");
-          const freshMembers = await loadFromSheet(true);
-          setSelectedMember((prev) =>
-            prev?.id === savedId && freshMembers?.length
-              ? (freshMembers.find((m) => m.id === savedId) ?? prev)
-              : prev
-          );
-        } finally {
-          setSaving(false);
+          addChange("Pseudo", previous.pseudo, updated.pseudo);
+          addChange("Ville", previous.ville, updated.ville);
+          addChange("Pays", previous.pays, updated.pays);
+          addChange("NDA", previous.rawRow["NDA Signée"] ?? "", updated.rawRow["NDA Signée"] ?? "");
+          addChange("Référent", previous.rawRow["Referent"] ?? "", updated.rawRow["Referent"] ?? "");
+          addChange("Contacté", previous.rawRow["Contacté"] ?? "", updated.rawRow["Contacté"] ?? "");
+          if ((previous.rawRow["Notes"] ?? "").trim() !== (updated.rawRow["Notes"] ?? "").trim()) changes.push("Notes: modifiées");
+          if (changes.length > 0) details = changes.join(" | ");
         }
-      } else {
-        setMembers((prev) =>
-          prev.map((m) => (m.id === updated.id ? updated : m))
+
+        void appendJournalEntry("Modifié", contactType, {
+          memberId: updated.id,
+          pseudo: getMemberDisplayName(updated, contactType),
+          details: details ?? "Fiche mise à jour",
+          userEmail: profile?.email,
+        });
+
+        setMembers((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        setSelectedMember(updated);
+        const freshMembers = await loadContacts(true);
+        setSelectedMember((prev) =>
+          prev && freshMembers.length ? (freshMembers.find((m) => m.id === prev!.id) ?? prev) : prev
         );
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : "Erreur lors de l'enregistrement.");
+        const savedId = updated.id;
+        const freshMembers = await loadContacts(true);
+        setSelectedMember((prev) =>
+          prev?.id === savedId && freshMembers?.length ? (freshMembers.find((m) => m.id === savedId) ?? prev) : prev
+        );
+      } finally {
+        setSaving(false);
       }
     },
-    [contactType, loadFromSheet, members]
+    [contactType, loadContacts, members, profile]
   );
 
   const handleAddMember = useCallback(
@@ -765,22 +581,25 @@ export default function Home() {
       setSaving(true);
       setSaveError(null);
       try {
-        const memberData = {
+        await insertContact({
+          contact_type: contactType,
           pseudo: newMember.pseudo,
           entreprise: newMember.rawRow["Entreprise"] ?? "",
           prenom: newMember.rawRow["Prénom"] ?? "",
           nom: newMember.rawRow["Nom"] ?? "",
-          idDiscord: newMember.rawRow["ID Discord"] ?? "",
+          id_discord: newMember.rawRow["ID Discord"] ?? "",
           email: newMember.rawRow["Email"] ?? "",
           pays: newMember.pays,
           ville: newMember.ville,
           region: newMember.region,
           langues: newMember.rawRow["Langue(s) parlée(s)"] ?? "",
-          ndaSignee: newMember.rawRow["NDA Signée"] ?? "",
+          nda_signee: newMember.rawRow["NDA Signée"] ?? "",
           referent: newMember.rawRow["Referent"] ?? "",
           notes: newMember.rawRow["Notes"] ?? "",
-          latitude: String(newMember.latitude),
-          longitude: String(newMember.longitude),
+          latitude: newMember.latitude,
+          longitude: newMember.longitude,
+          lock: null,
+          contacter: newMember.rawRow["Contacté"] ?? newMember.rawRow["Contacter"] ?? "",
           twitter: newMember.rawRow["Twitter"] ?? "",
           instagram: newMember.rawRow["Instagram"] ?? "",
           tiktok: newMember.rawRow["Tiktok"] ?? "",
@@ -788,171 +607,68 @@ export default function Home() {
           linkedin: newMember.rawRow["Linkedin"] ?? "",
           twitch: newMember.rawRow["Twitch"] ?? "",
           autre: newMember.rawRow["Autre"] ?? "",
-          // Champ "contacté" : on lit indifféremment les 2 variantes
-          contacter:
-            newMember.rawRow["Contacté"] ??
-            newMember.rawRow["Contacter"] ??
-            "",
-        };
+        });
+        devLog("handleAddMember", "Ajout OK");
 
-        if (useClientApi) {
-          const result = await appendRowToSheet(memberData, contactType);
-          if (!result.ok) {
-            setSaveError(
-              result.error ?? "Erreur lors de l'ajout au tableur."
-            );
-            throw new Error(result.error);
-          }
-          devLog("handleAddMember", "Ajout OK (client API)");
-        } else {
-          const res = await fetch("/api/sheets/append", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...memberData, contactType }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setSaveError(
-              json.error ??
-                `Erreur ${res.status} lors de l'ajout au tableur.`
-            );
-            throw new Error(json.error);
-          }
-          devLog("handleAddMember", "Ajout OK (API route)");
-        }
-        if (useClientApi) {
-          const nda = (
-            newMember.rawRow["NDA Signée"] ??
-            newMember.rawRow["NDA Signee"] ??
-            ""
-          ) as string;
-          const referent = (
-            newMember.rawRow["Referent"] ??
-            newMember.rawRow["Référent"] ??
-            ""
-          ) as string;
-          const contacter = (
-            newMember.rawRow["Contacté"] ??
-            newMember.rawRow["Contacter"] ??
-            ""
-          ) as string;
-          const langues = (
-            newMember.rawRow["Langue(s) parlée(s)"] ??
-            newMember.rawRow["Langues"] ??
-            ""
-          ) as string;
+        const detailParts: string[] = [];
+        if (newMember.ville || newMember.pays) detailParts.push(`Localisation: ${newMember.ville || "—"} / ${newMember.pays || "—"}`);
+        const nda = (newMember.rawRow["NDA Signée"] ?? "").trim();
+        const referent = (newMember.rawRow["Referent"] ?? "").trim();
+        const contacter = (newMember.rawRow["Contacté"] ?? "").trim();
+        const langues = (newMember.rawRow["Langue(s) parlée(s)"] ?? "").trim();
+        if (nda) detailParts.push(`NDA: ${nda}`);
+        if (referent) detailParts.push(`Référent: ${referent}`);
+        if (contacter) detailParts.push(`Contacté: ${contacter}`);
+        if (langues) detailParts.push(`Langues: ${langues}`);
 
-          const detailParts: string[] = [];
-          if (newMember.ville || newMember.pays) {
-            detailParts.push(
-              `Localisation: ${newMember.ville || "—"} / ${newMember.pays || "—"}`
-            );
-          }
-          if (nda.trim()) detailParts.push(`NDA: ${nda.trim()}`);
-          if (referent.trim())
-            detailParts.push(`Référent: ${referent.trim()}`);
-          if (contacter.trim())
-            detailParts.push(`Contacté: ${contacter.trim()}`);
-          if (langues.trim())
-            detailParts.push(`Langues: ${langues.trim()}`);
+        void appendJournalEntry("Ajouté", contactType, {
+          pseudo: newMember.pseudo,
+          details: detailParts.length > 0 ? detailParts.join(" | ") : "Nouveau contact ajouté",
+          userEmail: profile?.email,
+        });
 
-          const details =
-            detailParts.length > 0 ? detailParts.join(" | ") : undefined;
-
-          void appendJournalEntry("Ajouté", contactType, {
-            pseudo: newMember.pseudo,
-            details,
-          });
-        }
-        devLog("handleAddMember", "Refresh liste (force)");
-        await loadFromSheet(true);
+        await loadContacts(true);
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : "Erreur lors de l'ajout.");
       } finally {
         setSaving(false);
       }
     },
-    [loadFromSheet, contactType]
+    [loadContacts, contactType, profile]
   );
 
   const handleDeleteMember = useCallback(
     async (member: MemberLocation) => {
-      if (!member.id.startsWith("sheet-")) {
-        // Local member, just remove from state
-        setMembers((prev) => prev.filter((m) => m.id !== member.id));
-        return;
-      }
-
       setDeleting(true);
       setSaveError(null);
       try {
-        if (useClientApi) {
-          const result = await deleteRowInSheet(member.id, contactType);
-          if (!result.ok) {
-            setSaveError(
-              result.error ?? "Erreur lors de la suppression."
-            );
-            throw new Error(result.error);
-          }
-          devLog("handleDeleteMember", "Suppression OK (client API)");
-        } else {
-          const res = await fetch("/api/sheets/delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ memberId: member.id, contactType }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            const errorMsg = json.error ?? `Erreur ${res.status} lors de la suppression.`;
-            console.error("[handleDeleteMember] Erreur serveur:", json);
-            setSaveError(errorMsg);
-            throw new Error(errorMsg);
-          }
-          devLog("handleDeleteMember", "Suppression OK (API route)");
-        }
-        if (useClientApi) {
-          const nda = (
-            member.rawRow["NDA Signée"] ??
-            member.rawRow["NDA Signee"] ??
-            ""
-          ) as string;
-          const referent = (
-            member.rawRow["Referent"] ??
-            member.rawRow["Référent"] ??
-            ""
-          ) as string;
-          const contacter = (
-            member.rawRow["Contacté"] ??
-            member.rawRow["Contacter"] ??
-            ""
-          ) as string;
+        await deleteContact(member.id);
+        devLog("handleDeleteMember", "Suppression OK");
 
-          const detailParts: string[] = [];
-          if (member.ville || member.pays) {
-            detailParts.push(
-              `Localisation: ${member.ville || "—"} / ${member.pays || "—"}`
-            );
-          }
-          if (nda.trim()) detailParts.push(`NDA: ${nda.trim()}`);
-          if (referent.trim())
-            detailParts.push(`Référent: ${referent.trim()}`);
-          if (contacter.trim())
-            detailParts.push(`Contacté: ${contacter.trim()}`);
+        const detailParts: string[] = [];
+        if (member.ville || member.pays) detailParts.push(`Localisation: ${member.ville || "—"} / ${member.pays || "—"}`);
+        const nda = (member.rawRow["NDA Signée"] ?? "").trim();
+        const referent = (member.rawRow["Referent"] ?? "").trim();
+        const contacter = (member.rawRow["Contacté"] ?? "").trim();
+        if (nda) detailParts.push(`NDA: ${nda}`);
+        if (referent) detailParts.push(`Référent: ${referent}`);
+        if (contacter) detailParts.push(`Contacté: ${contacter}`);
 
-          const details =
-            detailParts.length > 0 ? detailParts.join(" | ") : undefined;
+        void appendJournalEntry("Supprimé", contactType, {
+          memberId: member.id,
+          pseudo: getMemberDisplayName(member, contactType),
+          details: detailParts.length > 0 ? detailParts.join(" | ") : "Contact supprimé",
+          userEmail: profile?.email,
+        });
 
-          void appendJournalEntry("Supprimé", contactType, {
-            memberId: member.id,
-            pseudo: getMemberDisplayName(member, contactType),
-            details,
-          });
-        }
-        devLog("handleDeleteMember", "Refresh liste (force)");
-        await loadFromSheet(true);
+        await loadContacts(true);
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : "Erreur lors de la suppression.");
       } finally {
         setDeleting(false);
       }
     },
-    [loadFromSheet, contactType]
+    [loadContacts, contactType, profile]
   );
 
   const clearFilters = useCallback(() => {
@@ -960,13 +676,13 @@ export default function Home() {
     setSearchQuery("");
   }, []);
 
-  /** Exporte la liste filtrée en CSV ; demande toujours où enregistrer (Tauri = dialogue natif, navigateur = showSaveFilePicker ou téléchargement). */
+  /** Exporte la liste filtrée en CSV. */
   const handleExportCsv = useCallback(async () => {
-    if (!data?.headers?.length || filteredMembers.length === 0) return;
-    const headers = data.headers;
+    if (filteredMembers.length === 0) return;
+    const headers = Object.keys(filteredMembers[0].rawRow);
     const rows = filteredMembers.map((m) =>
       headers.map((h) => {
-        const v = m.rawRow[h.trim()] ?? "";
+        const v = m.rawRow[h] ?? "";
         const escaped = /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
         return escaped;
       }).join(",")
@@ -1021,11 +737,8 @@ export default function Home() {
     a.download = suggestedName;
     a.click();
     URL.revokeObjectURL(url);
-  }, [data, filteredMembers, contactType, isTauri]);
+  }, [filteredMembers, contactType, isTauri]);
 
-  const handleLoadingFinished = useCallback(() => {
-    setFirstLoad(false);
-  }, []);
 
   /* ── Filter select classes ────────────────────────────── */
   const selectCls =
@@ -1034,10 +747,8 @@ export default function Home() {
   /* ── Render ───────────────────────────────────────────── */
 
   return (
-    <PasswordGate>
+    <PageGuard page="contacts">
       <div className="flex h-screen flex-col overflow-hidden bg-[#07070b] text-zinc-100">
-      {/* Loading Screen */}
-      <LoadingScreen loading={loading && firstLoad} onFinished={handleLoadingFinished} />
 
       {/* ── Header ─────────────────────────────────────── */}
       <header className="relative z-20 shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/90 backdrop-blur-xl">
@@ -1132,16 +843,6 @@ export default function Home() {
             </Button>
           )}
 
-          {/* Journal des modifications */}
-          <Link
-            href="/journal"
-            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
-            title="Voir le journal des modifications"
-          >
-            <ScrollText className="size-3.5" />
-            <span className="hidden sm:inline">Journal</span>
-          </Link>
-
           {/* Filter toggle */}
           <Button
             variant="ghost"
@@ -1163,7 +864,7 @@ export default function Home() {
           </Button>
 
           {/* Add button */}
-          {showMap && (
+          {showMap && canEdit && (
             <Button
               onClick={handleOpenAdd}
               size="sm"
@@ -1193,7 +894,7 @@ export default function Home() {
                 Actions
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/10" />
-              {showMap && (
+              {showMap && canEdit && (
                 <DropdownMenuItem
                   onClick={handleOpenAdd}
                   className="focus:bg-violet-600/20 focus:text-violet-100"
@@ -1266,6 +967,23 @@ export default function Home() {
                   value={filters.nda}
                   onChange={(e) =>
                     setFilters((f) => ({ ...f, nda: e.target.value }))
+                  }
+                  className={selectCls}
+                >
+                  <option value="">Tous</option>
+                  <option value="Oui">Oui</option>
+                  <option value="Non">Non</option>
+                </select>
+              </div>
+
+              <div className="space-y-0.5">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Contacté
+                </label>
+                <select
+                  value={filters.contacter}
+                  onChange={(e) =>
+                    setFilters((f) => ({ ...f, contacter: e.target.value }))
                   }
                   className={selectCls}
                 >
@@ -1678,7 +1396,7 @@ export default function Home() {
             </div>
 
             {/* Sidebar footer */}
-            {showMap && (
+            {showMap && canEdit && (
               <div className="border-t border-white/[0.04] p-2">
                 <Button
                   onClick={handleOpenAdd}
@@ -1694,7 +1412,7 @@ export default function Home() {
         </aside>
 
         {/* ── Map area ─────────────────────────────────── */}
-        <main className="relative min-h-0 flex-1">
+        <main className="relative z-10 min-h-0 flex-1">
           {/* Empty states */}
           {!showMap && !loading && !error && (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
@@ -1767,10 +1485,12 @@ export default function Home() {
             saving={saving}
             deleting={deleting}
             contactType={contactType}
+            canEdit={canEdit}
+            canDelete={canDelete}
           />
 
           {/* Loading overlay (after first load) */}
-          {loading && !firstLoad && (
+          {loading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-zinc-900/90 px-8 py-6 shadow-2xl">
                 <div className="size-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
@@ -1783,6 +1503,6 @@ export default function Home() {
         </main>
       </div>
     </div>
-    </PasswordGate>
+    </PageGuard>
   );
 }
