@@ -7,6 +7,7 @@ export interface Seat {
   rotation: number;
   zone?: string;
   person?: string;
+  label?: string;
 }
 
 export interface Zone {
@@ -14,10 +15,18 @@ export interface Zone {
   color: string;
 }
 
+export interface SalleUser {
+  id: string;
+  name: string;
+  category?: string;
+  assignedSeatId?: string;
+}
+
 export interface SallePlan {
   name: string;
   zones: Zone[];
   seats: Seat[];
+  users?: SalleUser[];
 }
 
 export const DEFAULT_SEAT_SIZE = 40;

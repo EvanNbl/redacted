@@ -12,19 +12,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { SalleCanvas } from "@/components/salle/SalleCanvas";
+import { SalleCanvas, type SalleCanvasHandle } from "@/components/salle/SalleCanvas";
 import { SalleToolbar, type SalleTool } from "@/components/salle/SalleToolbar";
 import { ZonePanel } from "@/components/salle/ZonePanel";
+import { UsersPanel } from "@/components/salle/UsersPanel";
 import { SeatAssignDialog } from "@/components/salle/SeatAssignDialog";
 import { NewPlanModal } from "@/components/salle/NewPlanModal";
 import { fetchSallePlans, saveSallePlan, deleteSallePlan, appendJournalEntry } from "@/lib/supabase-data";
 import { buildPlanFromTemplate } from "@/lib/salle-templates";
-import type { SallePlan, Seat, Zone } from "@/lib/salle-types";
-import { PRESET_COLORS } from "@/lib/salle-types";
+import type { SallePlan, Seat, Zone, SalleUser } from "@/lib/salle-types";
 import { useAuth } from "@/lib/auth-context";
 import { PageGuard } from "@/components/PageGuard";
 import { usePermission } from "@/hooks/usePermission";
 import { getSalleBetaEnabled } from "@/lib/beta-flags";
+import { exportSeatPlanCsv, exportSeatPlanJson } from "@/lib/salle-export";
 
 export default function SallePage() {
   const { profile } = useAuth();
@@ -34,6 +35,7 @@ export default function SallePage() {
   const [currentPlanName, setCurrentPlanName] = useState<string | null>(null);
   const [seats, setSeats] = useState<Seat[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
+  const [users, setUsers] = useState<SalleUser[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeTool, setActiveTool] = useState<SalleTool>("select");
   const [zoom, setZoom] = useState(1);
@@ -44,10 +46,13 @@ export default function SallePage() {
   const [showNewPlanModal, setShowNewPlanModal] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showUsersPanel, setShowUsersPanel] = useState(false);
   const [lastChangeTime, setLastChangeTime] = useState<number | null>(null);
   const mounted = useRef(true);
+  const canvasRef = useRef<SalleCanvasHandle>(null);
 
   const currentPlan = plans.find((p) => p.name === currentPlanName);
+  void currentPlan;
 
   useEffect(() => {
     setBetaEnabled(getSalleBetaEnabled());
@@ -67,11 +72,13 @@ export default function SallePage() {
         setCurrentPlanName(first.name);
         setSeats(first.seats);
         setZones(first.zones);
+        setUsers(first.users ?? []);
       } else if (currentPlanName) {
         const p = loaded.find((pl) => pl.name === currentPlanName);
         if (p) {
           setSeats(p.seats);
           setZones(p.zones);
+          setUsers(p.users ?? []);
         }
       }
     } catch {
@@ -96,6 +103,7 @@ export default function SallePage() {
       setCurrentPlanName(name);
       setSeats(plan.seats);
       setZones(plan.zones);
+      setUsers(plan.users ?? []);
       setSelectedIds(new Set());
     },
     [plans]
@@ -113,11 +121,13 @@ export default function SallePage() {
         name: trimmed,
         zones: initialZones,
         seats: initialSeats,
+        users: [],
       };
       setPlans((prev) => [...prev, newPlan]);
       setCurrentPlanName(trimmed);
       setSeats(initialSeats);
       setZones(initialZones);
+      setUsers([]);
       setSelectedIds(new Set());
       setShowNewPlanModal(false);
       void appendJournalEntry("Créé", "salle", {
@@ -136,7 +146,7 @@ export default function SallePage() {
     if (!currentPlanName) return;
     setSaving(true);
     setError(null);
-    const plan: SallePlan = { name: currentPlanName, zones, seats };
+    const plan: SallePlan = { name: currentPlanName, zones, seats, users };
     const result = await saveSallePlan(plan);
     if (mounted.current) {
       setSaving(false);
@@ -147,12 +157,12 @@ export default function SallePage() {
         );
         void appendJournalEntry("Sauvegardé", "salle", {
           pseudo: currentPlanName,
-          details: `Plan "${currentPlanName}" sauvegardé (${seats.length} places)`,
+          details: `Plan "${currentPlanName}" sauvegardé (${seats.length} places, ${users.length} utilisateurs)`,
           userEmail: profile?.email,
         });
       }
     }
-  }, [currentPlanName, zones, seats]);
+  }, [currentPlanName, zones, seats, users, profile]);
 
   const handleDeletePlan = useCallback(async () => {
     if (!currentPlanName) return;
@@ -170,6 +180,7 @@ export default function SallePage() {
     setCurrentPlanName(null);
     setSeats([]);
     setZones([]);
+    setUsers([]);
     setSelectedIds(new Set());
     setShowDeleteConfirm(false);
   }, [currentPlanName, profile]);
@@ -196,16 +207,22 @@ export default function SallePage() {
         setSelectedIds(new Set());
         setActiveTool("select");
       }
-      if ((e.key === "+" || e.key === "=") && !isTyping) {
+      if ((e.key === "+" || e.key === "=") && !isTyping && !e.ctrlKey) {
         e.preventDefault();
-        setZoom((z) => Math.min(3, z + 0.15));
+        canvasRef.current?.zoomIn();
       }
-      if (e.key === "-" && !isTyping) {
+      if (e.key === "-" && !isTyping && !e.ctrlKey) {
         e.preventDefault();
-        setZoom((z) => Math.max(0.2, z - 0.15));
+        canvasRef.current?.zoomOut();
       }
-      // Tool shortcuts
-      if (!isTyping) {
+      // Ctrl+A — select all
+      if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
+        if (isTyping) return;
+        e.preventDefault();
+        setSelectedIds(new Set(seats.map((s) => s.id)));
+        return;
+      }
+      if (!isTyping && !e.ctrlKey && !e.metaKey) {
         if (e.key === "s" || e.key === "S") setActiveTool("select");
         if (e.key === "a" || e.key === "A") setActiveTool("addSingle");
         if (e.key === "l" || e.key === "L") setActiveTool("addLine");
@@ -214,7 +231,7 @@ export default function SallePage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedIds]);
+  }, [selectedIds, seats]);
 
   /* ── Actions ─────────────────────────────────────────── */
 
@@ -223,6 +240,10 @@ export default function SallePage() {
     setSelectedIds(new Set());
     setLastChangeTime(Date.now());
   }, [selectedIds]);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(seats.map((s) => s.id)));
+  }, [seats]);
 
   const handleRotateSelected = useCallback(() => {
     setSeats((prev) =>
@@ -233,19 +254,10 @@ export default function SallePage() {
     setLastChangeTime(Date.now());
   }, [selectedIds]);
 
-  const handleZoomIn = useCallback(() => setZoom((z) => Math.min(3, z + 0.15)), []);
-  const handleZoomOut = useCallback(() => setZoom((z) => Math.max(0.2, z - 0.15)), []);
-  const handleResetZoom = useCallback(() => setZoom(1), []);
-
-  const handleResetView = useCallback(() => {
-    // Déclenche le re-centrage dans SalleCanvas en forçant un re-scroll
-    // On utilise un ref exposé via la clé du composant; ici on scrolle manuellement
-    const canvas = document.querySelector<HTMLDivElement>(".salle-canvas-container");
-    if (!canvas) return;
-    const center = 4000 / 2;
-    canvas.scrollLeft = center * zoom - canvas.clientWidth / 2;
-    canvas.scrollTop = center * zoom - canvas.clientHeight / 2;
-  }, [zoom]);
+  const handleZoomIn = useCallback(() => canvasRef.current?.zoomIn(), []);
+  const handleZoomOut = useCallback(() => canvasRef.current?.zoomOut(), []);
+  const handleResetZoom = useCallback(() => canvasRef.current?.resetZoom(), []);
+  const handleResetView = useCallback(() => canvasRef.current?.centerView(), []);
 
   /* ── Zones ───────────────────────────────────────────── */
 
@@ -295,15 +307,39 @@ export default function SallePage() {
           s.id === seatId ? { ...s, person: person || undefined, zone: zone ?? s.zone } : s
         )
       );
+      // Sync user assignment if this person is in the user list
+      if (person) {
+        setUsers((prev) =>
+          prev.map((u) => {
+            if (u.assignedSeatId === seatId) return { ...u, assignedSeatId: undefined };
+            if (u.name === person) return { ...u, assignedSeatId: seatId };
+            return u;
+          })
+        );
+      } else {
+        setUsers((prev) =>
+          prev.map((u) => u.assignedSeatId === seatId ? { ...u, assignedSeatId: undefined } : u)
+        );
+      }
       setAssignSeatId(null);
       setLastChangeTime(Date.now());
     },
     []
   );
 
-  const assignSeat = seats.find((s) => s.id === assignSeatId);
+  /* ── Export ──────────────────────────────────────────── */
 
-  // Sauvegarde automatique après modifications (création ou édition du plan)
+  const handleExportCsv = useCallback(() => {
+    exportSeatPlanCsv(seats, zones, users, currentPlanName ?? "plan");
+  }, [seats, zones, users, currentPlanName]);
+
+  const handleExportJson = useCallback(() => {
+    if (!currentPlanName) return;
+    exportSeatPlanJson({ name: currentPlanName, zones, seats, users }, users);
+  }, [currentPlanName, zones, seats, users]);
+
+  /* ── Auto-save ───────────────────────────────────────── */
+
   useEffect(() => {
     if (!currentPlanName || !lastChangeTime) return;
     const timeout = setTimeout(() => {
@@ -398,21 +434,20 @@ export default function SallePage() {
                     </div>
                   )}
                   {canEdit && (
-                  <>
-                  <DropdownMenuSeparator className="bg-white/10" />
-                  <DropdownMenuItem
-                    onClick={() => setShowNewPlanModal(true)}
-                    className="focus:bg-primary/20 focus:text-primary-foreground"
-                  >
-                    <Plus className="size-3.5 mr-2" />
-                    Nouveau plan
-                  </DropdownMenuItem>
-                  </>
+                    <>
+                      <DropdownMenuSeparator className="bg-white/10" />
+                      <DropdownMenuItem
+                        onClick={() => setShowNewPlanModal(true)}
+                        className="focus:bg-primary/20 focus:text-primary-foreground"
+                      >
+                        <Plus className="size-3.5 mr-2" />
+                        Nouveau plan
+                      </DropdownMenuItem>
+                    </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-
-              </div>
+            </div>
 
             {/* Delete plan button */}
             {currentPlanName && canDelete && (
@@ -437,11 +472,12 @@ export default function SallePage() {
                   {selectedIds.size > 0 && (
                     <> &middot; {selectedIds.size} sélectionnée{selectedIds.size !== 1 ? "s" : ""}</>
                   )}
+                  {users.length > 0 && (
+                    <> &middot; {users.filter(u => u.assignedSeatId).length}/{users.length} assignés</>
+                  )}
                 </span>
                 {saving && (
-                  <span className="text-primary">
-                    Sauvegarde en cours…
-                  </span>
+                  <span className="text-primary">Sauvegarde…</span>
                 )}
               </div>
             )}
@@ -450,7 +486,7 @@ export default function SallePage() {
 
         {/* Error bar */}
         {error && (
-          <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+          <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200 shrink-0">
             ⚠ {error}
           </div>
         )}
@@ -478,7 +514,7 @@ export default function SallePage() {
                 </>
               ) : (
                 <p className="mt-2 text-sm text-zinc-500 max-w-md">
-                  Aucun plan disponible. Vous n'avez pas la permission d'en creer.
+                  Aucun plan disponible. Vous n&apos;avez pas la permission d&apos;en créer.
                 </p>
               )}
             </div>
@@ -502,6 +538,7 @@ export default function SallePage() {
               activeTool={activeTool}
               snapEnabled={snapEnabled}
               zoom={zoom}
+              showUsersPanel={showUsersPanel}
               onToolChange={setActiveTool}
               onToggleSnap={() => setSnapEnabled((s) => !s)}
               onDeleteSelected={handleDeleteSelected}
@@ -511,6 +548,10 @@ export default function SallePage() {
               onResetZoom={handleResetZoom}
               onResetView={handleResetView}
               onRefresh={loadPlans}
+              onSelectAll={handleSelectAll}
+              onToggleUsersPanel={() => setShowUsersPanel((v) => !v)}
+              onExportCsv={handleExportCsv}
+              onExportJson={handleExportJson}
               loading={loading}
               hasSelection={selectedIds.size > 0}
               canEdit={canEdit}
@@ -518,12 +559,12 @@ export default function SallePage() {
 
             <div className="flex flex-1 overflow-hidden">
               <SalleCanvas
-                key={currentPlanName ?? "none"}
+                ref={canvasRef}
+                key={currentPlanName}
                 seats={seats}
                 zones={zones}
                 selectedIds={selectedIds}
                 activeTool={activeTool}
-                zoom={zoom}
                 snapEnabled={snapEnabled}
                 gridSize={20}
                 onSeatsChange={(nextSeats) => {
@@ -532,8 +573,7 @@ export default function SallePage() {
                 }}
                 onSelectionChange={setSelectedIds}
                 onSeatDoubleClick={handleSeatDoubleClick}
-                onZoomIn={handleZoomIn}
-                onZoomOut={handleZoomOut}
+                onZoomChange={setZoom}
               />
 
               <ZonePanel
@@ -545,14 +585,31 @@ export default function SallePage() {
                 selectedSeatsCount={selectedIds.size}
                 canEdit={canEdit}
               />
+
+              {showUsersPanel && (
+                <UsersPanel
+                  users={users}
+                  seats={seats}
+                  selectedSeatIds={selectedIds}
+                  onUsersChange={(nextUsers) => {
+                    setUsers(nextUsers);
+                    setLastChangeTime(Date.now());
+                  }}
+                  onSeatsChange={(nextSeats) => {
+                    setSeats(nextSeats);
+                    setLastChangeTime(Date.now());
+                  }}
+                  canEdit={canEdit}
+                />
+              )}
             </div>
           </>
         )}
 
         {/* Assign dialog */}
-        {assignSeat && (
+        {assignSeatId && (
           <SeatAssignDialog
-            seat={assignSeat}
+            seat={seats.find((s) => s.id === assignSeatId)!}
             zones={zones}
             onClose={() => setAssignSeatId(null)}
             onSave={handleAssignSave}
@@ -577,9 +634,9 @@ export default function SallePage() {
                 Supprimer le plan
               </h3>
               <p className="text-sm text-zinc-400 mb-6">
-                Etes-vous sur de vouloir supprimer le plan
+                Êtes-vous sûr de vouloir supprimer le plan
                 <span className="font-medium text-white"> &quot;{currentPlanName}&quot;</span> ?
-                Toutes les places seront perdues.
+                Toutes les places et utilisateurs seront perdus.
               </p>
               <div className="flex gap-3">
                 <Button
