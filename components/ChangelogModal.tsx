@@ -4,8 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Sparkles, Bug, Wrench, Shield } from "lucide-react";
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const CHANGELOG_SEEN_KEY = "changelog-seen-version";
+const CHANGELOG_TITLE = "Patch Notes";
+const CHANGELOG_DESCRIPTION = "Mise a jour des fonctionnalites et corrections de bugs.";
+const CHANGELOG_TAG = "Majeure";
+// rouge
+const CHANGELOG_TAG_COLOR = "border-red-500/20 bg-red-500/10 text-red-400";
 
 interface ChangelogEntry {
   icon: React.ReactNode;
@@ -15,7 +20,7 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    icon: <Sparkles className="size-4 text-violet-400" />,
+    icon: <Sparkles className="size-4 text-primary" />,
     title: "Nouvelles fonctionnalites",
     items: [
       "Connexion avec Google (remplacement du mot de passe)",
@@ -25,6 +30,7 @@ const CHANGELOG: ChangelogEntry[] = [
       "Page Administration : gestion des utilisateurs, roles et permissions",
       "Page Profil : gestion du nom, avatar, vue des permissions",
       "Devblog : affichage des nouveautes apres chaque mise a jour",
+      "Page Settings : gestion des preferences de l'application",
     ],
   },
   {
@@ -55,6 +61,7 @@ const CHANGELOG: ChangelogEntry[] = [
     items: [
       "Correction de la creation automatique des profils a l'inscription",
       "Correction du CSP Tauri pour l'authentification Google",
+      "Correction de l'affichage des profils utilisateurs",
     ],
   },
 ];
@@ -107,14 +114,17 @@ export function ChangelogModal() {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-mono text-violet-400">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[11px] font-mono text-primary">
                       v{APP_VERSION}
                     </span>
-                    <span className="text-[11px] text-zinc-600">Mise a jour</span>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border ${CHANGELOG_TAG_COLOR} px-2.5 py-0.5 text-[11px] font-mono`}>{CHANGELOG_TAG}</span>
                   </div>
                   <h2 className="text-xl font-bold text-white">
-                    Quoi de neuf ?
+                    {CHANGELOG_TITLE}
                   </h2>
+                  <p className="text-sm text-zinc-400">
+                    {CHANGELOG_DESCRIPTION}
+                  </p>
                 </div>
                 <button
                   onClick={dismiss}
@@ -153,7 +163,7 @@ export function ChangelogModal() {
             <div className="shrink-0 px-6 py-4 border-t border-white/[0.06]">
               <button
                 onClick={dismiss}
-                className="w-full rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium py-2.5 transition-colors"
+                className="w-full rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium py-2.5 transition-colors"
               >
                 C'est compris !
               </button>

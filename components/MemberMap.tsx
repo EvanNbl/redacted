@@ -38,7 +38,7 @@ export function MemberMap({
           onClick={() => setMode("3d")}
           className={`rounded-none border-0 px-4 py-2.5 text-sm font-medium transition ${
             mode === "3d"
-              ? "bg-violet-600 text-white shadow-inner hover:bg-violet-600 hover:text-white"
+              ? "bg-primary text-primary-foreground shadow-inner hover:bg-primary hover:text-primary-foreground"
               : "text-zinc-400 hover:bg-white/10 hover:text-white"
           }`}
         >
@@ -51,7 +51,7 @@ export function MemberMap({
           onClick={() => setMode("flat")}
           className={`rounded-none border-0 px-4 py-2.5 text-sm font-medium transition ${
             mode === "flat"
-              ? "bg-violet-600 text-white shadow-inner hover:bg-violet-600 hover:text-white"
+              ? "bg-primary text-primary-foreground shadow-inner hover:bg-primary hover:text-primary-foreground"
               : "text-zinc-400 hover:bg-white/10 hover:text-white"
           }`}
         >

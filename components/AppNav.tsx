@@ -7,6 +7,7 @@ import {
   MapPin,
   LayoutGrid,
   ScrollText,
+  Settings,
   Shield,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { getSalleBetaEnabled } from "@/lib/beta-flags";
 
 const NAV_ITEMS = [
   { href: "/", label: "Contacts", icon: MapPin, page: "contacts" },
@@ -23,6 +25,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const COLLAPSED_KEY = "app-nav-collapsed";
+const BETA_EVENT_NAME = "beta-flags:update";
 
 function getInitials(name: string | null | undefined, email: string): string {
   if (name && name.trim()) {
@@ -42,6 +45,7 @@ export function AppNav() {
   const [collapsed, setCollapsed] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [salleBetaEnabled, setSalleBetaEnabled] = useState(false);
 
   useEffect(() => {
     try {
@@ -54,6 +58,24 @@ export function AppNav() {
     } catch {
       /* ignore */
     }
+  }, []);
+
+  useEffect(() => {
+    setSalleBetaEnabled(getSalleBetaEnabled());
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ salle?: boolean }>;
+      if (typeof custom.detail?.salle === "boolean") {
+        setSalleBetaEnabled(custom.detail.salle);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener(BETA_EVENT_NAME, handler as EventListener);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener(BETA_EVENT_NAME, handler as EventListener);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -91,6 +113,7 @@ export function AppNav() {
       {/* Navigation links */}
       <div className="flex flex-col gap-1 px-2 pt-3 flex-1">
         {NAV_ITEMS.filter(({ page }) => {
+          if (page === "salle" && !salleBetaEnabled) return false;
           if (isAdmin) return true;
           const perm = permissions.find((p) => p.page === page);
           return perm?.can_read ?? false;
@@ -105,7 +128,7 @@ export function AppNav() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-violet-600/20 text-violet-300"
+                  ? "bg-primary/20 text-primary"
                   : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
               )}
             >
@@ -122,7 +145,7 @@ export function AppNav() {
             className={cn(
               "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
               pathname.startsWith("/admin")
-                ? "bg-violet-600/20 text-violet-300"
+                ? "bg-primary/20 text-primary"
                 : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
             )}
           >
@@ -130,6 +153,20 @@ export function AppNav() {
             {!collapsed && <span className="truncate">Admin</span>}
           </Link>
         )}
+
+        <Link
+          href="/settings"
+          title="Paramètres"
+          className={cn(
+            "mt-2 flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
+            pathname.startsWith("/settings")
+              ? "bg-primary/20 text-primary"
+              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+          )}
+        >
+          <Settings className="size-4 shrink-0" />
+          {!collapsed && <span className="truncate">Paramètres</span>}
+        </Link>
       </div>
 
       {/* User avatar */}
@@ -150,7 +187,7 @@ export function AppNav() {
                 className="size-7 min-w-7 min-h-7 aspect-square rounded-full object-cover ring-2 ring-white/10 shrink-0"
               />
             ) : (
-              <div className="size-7 min-w-7 min-h-7 aspect-square rounded-full bg-violet-600/30 flex items-center justify-center text-[10px] font-bold text-violet-300 shrink-0">
+              <div className="size-7 min-w-7 min-h-7 aspect-square rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
                 {initials}
               </div>
             )}
@@ -166,7 +203,7 @@ export function AppNav() {
               <Link
                 href="/profile"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-300 hover:bg-violet-600/20 hover:text-violet-100 transition-colors"
+                className="flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-300 hover:bg-primary/20 hover:text-primary-foreground transition-colors"
               >
                 <User className="size-4" />
                 Mon profil

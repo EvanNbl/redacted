@@ -237,7 +237,7 @@ export function UpdateChecker() {
           <div className="space-y-3 p-4">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-400">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
                   <Download className="size-4" />
                 </div>
                 <div>
@@ -269,7 +269,7 @@ export function UpdateChecker() {
               <button
                 type="button"
                 onClick={installUpdate}
-                className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-violet-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:from-violet-500 hover:to-violet-400"
+                className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90"
               >
                 Installer
               </button>
@@ -296,18 +296,18 @@ export function UpdateChecker() {
         {status.state === "downloading" && (
           <div className="space-y-3 p-4">
             <div className="flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin text-violet-400" />
+              <Loader2 className="size-4 animate-spin text-primary" />
               <p className="text-sm font-medium text-white">
                 Téléchargement en cours…
               </p>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-violet-400 transition-all duration-300"
+                className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{ width: `${status.progress}%` }}
               />
             </div>
-            <p className="text-right text-[10px] font-medium tabular-nums text-violet-300">
+            <p className="text-right text-[10px] font-medium tabular-nums text-primary/80">
               {status.progress}%
             </p>
           </div>

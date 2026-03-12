@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import type { MemberLocation } from "@/lib/member-locations";
 import { isMemberLocked, isNdaSigned, getMemberDisplayName } from "@/lib/member-locations";
+import { useThemePrimaryColor } from "@/lib/use-theme-color";
 import { getISO3 } from "@/lib/country-iso-map";
 import * as topojson from "topojson-client";
 import type { Topology, GeometryCollection } from "topojson-specification";
@@ -163,7 +164,7 @@ export function FlatMapView({
       <div
         className={`flex items-center justify-center bg-zinc-900 ${className}`}
       >
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -188,6 +189,7 @@ function FlatMapInner({
   focusMemberId,
   contactType = "communication",
 }: FlatMapViewProps) {
+  const primaryColor = useThemePrimaryColor();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
@@ -268,19 +270,25 @@ function FlatMapInner({
       const isActive = featureISO3 && activeISOs.has(featureISO3);
 
       (layer as L.Path).setStyle({
-        fillColor: isActive ? "#8b5cf6" : "transparent",
+        fillColor: isActive ? primaryColor : "transparent",
         fillOpacity: isActive ? 0.2 : 0,
-        color: isActive
-          ? "rgba(139,92,246,0.4)"
-          : "rgba(255,255,255,0.05)",
+        color: isActive ? primaryColor : "rgba(255,255,255,0.05)",
+        opacity: isActive ? 0.4 : 1,
         weight: isActive ? 1 : 0.5,
       });
     });
-  }, [getFeatureISO3]);
+  }, [getFeatureISO3, primaryColor]);
 
   useEffect(() => {
     colorCountriesRef.current = (membersToUse: MemberLocation[]) => colorCountries(membersToUse);
   }, [colorCountries]);
+
+  // Recolore les pays quand le thème change
+  useEffect(() => {
+    if (colorCountriesRef.current) {
+      colorCountriesRef.current(membersRef.current);
+    }
+  }, [primaryColor]);
 
   // Initialize map (once)
   useEffect(() => {

@@ -23,7 +23,7 @@ function ActionBadge({ action }: { action: string }) {
     "Modifié": "bg-amber-500/20 text-amber-400 border-amber-500/30",
     "Sauvegardé": "bg-blue-500/20 text-blue-400 border-blue-500/30",
     "Supprimé": "bg-red-500/20 text-red-400 border-red-500/30",
-    "Connexion": "bg-violet-500/20 text-violet-400 border-violet-500/30",
+    "Connexion": "bg-primary/20 text-primary border-primary/30",
     "Déconnexion": "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
   };
   const style = STYLES[action] ?? "bg-zinc-500/20 text-zinc-400 border-zinc-500/30";
@@ -109,8 +109,8 @@ export default function JournalPage() {
       <header className="shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/95 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 max-w-6xl mx-auto">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-violet-600/20">
-              <ScrollText className="size-5 text-violet-400" />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/20">
+              <ScrollText className="size-5 text-primary" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-white tracking-tight">
@@ -158,13 +158,13 @@ export default function JournalPage() {
 
         {loading && rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <div className="size-10 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+            <div className="size-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="text-sm text-zinc-500">Chargement du journal…</p>
           </div>
         ) : rows.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-10 text-center">
-            <div className="inline-flex size-14 items-center justify-center rounded-2xl bg-violet-600/10 mb-4">
-              <ScrollText className="size-7 text-violet-400/80" />
+            <div className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
+              <ScrollText className="size-7 text-primary/80" />
             </div>
             <p className="text-zinc-400 font-medium">Aucune entrée dans le journal</p>
             <p className="mt-2 text-sm text-zinc-500 max-w-md mx-auto">

@@ -59,8 +59,8 @@ export default function ProfilePage() {
       <header className="shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/90 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-violet-600/20">
-              <User className="size-5 text-violet-400" />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/20">
+              <User className="size-5 text-primary" />
             </div>
             <h1 className="text-base font-semibold text-white tracking-tight">
               Mon profil
@@ -78,10 +78,10 @@ export default function ProfilePage() {
               <img
                 src={profile.avatar_url}
                 alt=""
-                className="size-20 rounded-full object-cover ring-4 ring-violet-600/20"
+                className="size-20 rounded-full object-cover ring-4 ring-primary/20"
               />
             ) : (
-              <div className="size-20 rounded-full bg-violet-600/20 flex items-center justify-center text-2xl font-bold text-violet-300">
+              <div className="size-20 rounded-full bg-primary/20 flex items-center justify-center text-2xl font-bold text-primary/80">
                 {initials}
               </div>
             )}
@@ -108,7 +108,7 @@ export default function ProfilePage() {
               <Input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="h-10 border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+                className="h-10 border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-primary/50"
                 placeholder="Votre nom"
               />
             </div>
@@ -126,7 +126,7 @@ export default function ProfilePage() {
             <Button
               onClick={handleSave}
               disabled={saving || fullName.trim() === (profile.full_name ?? "")}
-              className="w-full h-10 bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
+              className="w-full h-10 bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -149,7 +149,7 @@ export default function ProfilePage() {
           <FadeIn delay={0.3}>
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
             <h3 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-2">
-              <Shield className="size-4 text-violet-400" />
+              <Shield className="size-4 text-primary" />
               Mes permissions
             </h3>
             <div className="space-y-2">

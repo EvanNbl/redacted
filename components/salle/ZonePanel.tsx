@@ -101,7 +101,7 @@ export function ZonePanel({
                 size="icon-xs"
                 onClick={() => onAssignZone(zone.name)}
                 title={`Assigner ${selectedSeatsCount} place(s) à "${zone.name}"`}
-                className="text-zinc-500 hover:text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="text-zinc-500 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <Paintbrush className="size-3" />
               </Button>
@@ -151,7 +151,7 @@ export function ZonePanel({
           size="xs"
           onClick={handleAdd}
           disabled={!newName.trim()}
-          className="w-full bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-40"
+          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
         >
           <Plus className="size-3" />
           Ajouter zone

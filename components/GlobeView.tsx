@@ -13,6 +13,7 @@ import { OrbitControls, useTexture, Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { MemberLocation } from "@/lib/member-locations";
 import { isMemberLocked, isNdaSigned, getMemberDisplayName } from "@/lib/member-locations";
+import { useThemePrimaryColor, lightenHex, darkenHex } from "@/lib/use-theme-color";
 
 const CAMERA_POS = new THREE.Vector3();
 
@@ -155,6 +156,9 @@ function MemberMarker({
     document.body.style.cursor = "default";
   }, []);
 
+  // Doit être appelé avant tout return conditionnel (règles des hooks)
+  const primaryColor = useThemePrimaryColor();
+
   // Smooth scale animation
   useFrame(() => {
     if (groupRef.current) {
@@ -162,7 +166,7 @@ function MemberMarker({
       const diff = targetScale.current - currentScale;
       if (Math.abs(diff) > 0.01) {
         groupRef.current.scale.setScalar(
-          currentScale + diff * 0.15 // Smooth interpolation
+          currentScale + diff * 0.15
         );
       } else {
         groupRef.current.scale.setScalar(targetScale.current);
@@ -186,9 +190,9 @@ function MemberMarker({
     darkColor = "#16a34a";
     highlightColor = "#86efac";
   } else {
-    mainColor = "#8b5cf6";
-    darkColor = "#6d28d9";
-    highlightColor = "#c4b5fd";
+    mainColor = primaryColor;
+    darkColor = darkenHex(primaryColor, 0.35);
+    highlightColor = lightenHex(primaryColor, 0.4);
   }
 
   return (
@@ -466,7 +470,7 @@ export function GlobeView({
       <div
         className={`flex items-center justify-center bg-black ${className}`}
       >
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }

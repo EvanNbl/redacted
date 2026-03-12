@@ -176,11 +176,11 @@ export function AddressAutocomplete({
           placeholder={placeholder}
           autoComplete="off"
           disabled={disabled}
-          className={`h-8 border-white/10 bg-white/[0.04] pl-8 text-sm text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40 ${className ?? ""}`}
+          className={`h-8 border-white/10 bg-white/[0.04] pl-8 text-sm text-white placeholder:text-zinc-600 focus-visible:ring-primary/40 ${className ?? ""}`}
         />
         {loading && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
-            <div className="size-3.5 animate-spin rounded-full border border-violet-500 border-t-transparent" />
+            <div className="size-3.5 animate-spin rounded-full border border-primary border-t-transparent" />
           </div>
         )}
       </div>
@@ -192,13 +192,13 @@ export function AddressAutocomplete({
               key={`${s.lat}-${s.lon}-${i}`}
               className={`flex cursor-pointer items-start gap-2.5 px-3 py-2 text-sm transition-colors ${
                 i === activeIndex
-                  ? "bg-violet-600/20 text-white"
+                  ? "bg-primary/20 text-white"
                   : "text-zinc-300 hover:bg-white/5"
               }`}
               onMouseEnter={() => setActiveIndex(i)}
               onClick={() => handleSelect(s)}
             >
-              <MapPin className="mt-0.5 size-3.5 shrink-0 text-violet-400" />
+              <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {s.city || s.displayName.split(",")[0]}

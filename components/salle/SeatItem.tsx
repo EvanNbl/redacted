@@ -68,7 +68,7 @@ export const SeatItem = React.memo(function SeatItem({
       className={cn(
         "absolute flex items-center justify-center cursor-grab active:cursor-grabbing select-none border-2 text-[10px] font-medium leading-tight text-center overflow-hidden transition-shadow",
         selected
-          ? "border-white ring-2 ring-violet-500 shadow-lg shadow-violet-500/20"
+          ? "border-white ring-2 ring-primary shadow-lg shadow-primary/20"
           : "border-white/20 hover:border-white/40"
       )}
       style={{

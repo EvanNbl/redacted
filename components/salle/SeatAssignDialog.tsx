@@ -37,7 +37,7 @@ export function SeatAssignDialog({
       <div className="w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
           <div className="flex items-center gap-2">
-            <User className="size-4 text-violet-400" />
+            <User className="size-4 text-primary" />
             <h3 className="text-sm font-semibold text-white">
               Assigner une place
             </h3>
@@ -69,7 +69,7 @@ export function SeatAssignDialog({
             <select
               value={zone}
               onChange={(e) => setZone(e.target.value)}
-              className="h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm text-white outline-none focus-visible:border-violet-500/50 [&>option]:bg-zinc-900 [&>option]:text-white"
+              className="h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm text-white outline-none focus-visible:border-primary/50 [&>option]:bg-zinc-900 [&>option]:text-white"
             >
               <option value="">— Aucune zone —</option>
               {zones.map((z) => (
@@ -93,7 +93,7 @@ export function SeatAssignDialog({
             <Button
               type="submit"
               size="sm"
-              className="flex-1 bg-violet-600 text-white hover:bg-violet-500"
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Enregistrer
             </Button>

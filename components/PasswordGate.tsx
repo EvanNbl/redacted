@@ -60,7 +60,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
   if (isChecking) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#07070b]">
-        <div className="size-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+        <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -74,8 +74,8 @@ export function PasswordGate({ children }: PasswordGateProps) {
       <div className="w-full max-w-md px-6">
         <div className="rounded-2xl border border-white/10 bg-[#0a0a10]/90 backdrop-blur-xl p-8 shadow-2xl">
           <div className="mb-6 flex justify-center">
-            <div className="flex size-16 items-center justify-center rounded-2xl bg-violet-600/20">
-              <Lock className="size-8 text-violet-400" />
+            <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/20">
+              <Lock className="size-8 text-primary" />
             </div>
           </div>
 
@@ -97,7 +97,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
                     setError("");
                   }}
                   placeholder="Mot de passe"
-                  className="h-11 border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/40"
+                  className="h-11 border-white/10 bg-white/5 pr-10 text-white placeholder:text-zinc-500 focus-visible:border-primary/50 focus-visible:ring-primary/40"
                   autoFocus
                 />
                 <button
@@ -124,7 +124,7 @@ export function PasswordGate({ children }: PasswordGateProps) {
             <Button
               type="submit"
               disabled={checking}
-              className="w-full bg-violet-600 text-white hover:bg-violet-500 h-11"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 h-11"
             >
               {checking ? "Vérification…" : "Se connecter"}
             </Button>

@@ -24,7 +24,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="dark">
+    <html lang="fr" className="dark" suppressHydrationWarning>
+      <head>
+        {/* Applique le thème de couleur avant le premier rendu pour éviter le flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('color-theme');var valid=['neutre','violet','rouge','jaune','vert','bleu'];if(t&&valid.includes(t)&&t!=='neutre'){document.documentElement.classList.add('theme-'+t);}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

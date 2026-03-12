@@ -145,8 +145,8 @@ export default function AdminPage() {
       <header className="shrink-0 border-b border-white/[0.06] bg-[#0a0a10]/90 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-violet-600/20">
-              <Shield className="size-5 text-violet-400" />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/20">
+              <Shield className="size-5 text-primary" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-white tracking-tight">
@@ -167,12 +167,12 @@ export default function AdminPage() {
               placeholder="Rechercher un utilisateur…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 border-white/10 bg-white/5 pl-8 text-xs text-white placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+              className="h-8 border-white/10 bg-white/5 pl-8 text-xs text-white placeholder:text-zinc-500 focus-visible:ring-primary/50"
             />
           </div>
 
           <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs">
-            <Users className="size-3.5 text-violet-400" />
+            <Users className="size-3.5 text-primary" />
             <span className="text-zinc-400">{users.length}</span>
           </div>
 
@@ -194,7 +194,7 @@ export default function AdminPage() {
       <main className="flex-1 overflow-y-auto p-4">
         {loading && users.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <div className="size-10 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+            <div className="size-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="text-sm text-zinc-500">Chargement…</p>
           </div>
         ) : (
@@ -228,7 +228,7 @@ export default function AdminPage() {
                         className="size-9 rounded-full object-cover ring-2 ring-white/10"
                       />
                     ) : (
-                      <div className="size-9 rounded-full bg-violet-600/20 flex items-center justify-center text-sm font-semibold text-violet-300">
+                      <div className="size-9 rounded-full bg-primary/20 flex items-center justify-center text-sm font-semibold text-primary/80">
                         {initials}
                       </div>
                     )}
@@ -257,7 +257,7 @@ export default function AdminPage() {
                               className={cn(
                                 "rounded-full px-2 py-0.5 text-[10px] capitalize border",
                                 hasAny
-                                  ? "border-violet-500/20 bg-violet-500/10 text-violet-400"
+                                  ? "border-primary/20 bg-primary/10 text-primary"
                                   : "border-white/5 bg-white/[0.02] text-zinc-600"
                               )}
                             >
@@ -282,7 +282,7 @@ export default function AdminPage() {
                           <DropdownMenuItem
                             key={role}
                             onClick={() => handleRoleChange(user.id, role)}
-                            className="focus:bg-violet-600/20 focus:text-violet-100 gap-2"
+                            className="focus:bg-primary/20 focus:text-primary-foreground gap-2"
                           >
                             {user.role === role && (
                               <Check className="size-3.5" />
@@ -354,7 +354,7 @@ export default function AdminPage() {
                                         }
                                         className={`size-5 rounded border transition-colors ${
                                           perm[field]
-                                            ? "bg-violet-600 border-violet-500 text-white"
+                                            ? "bg-primary border-primary text-primary-foreground"
                                             : "bg-white/5 border-white/10 text-transparent hover:border-white/20"
                                         } inline-flex items-center justify-center`}
                                       >

@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
-import type { Seat, Zone, SeatPosition } from "@/lib/salle-types";
+import { useRef, useState, useCallback, useEffect } from "react";
+import type { Seat, Zone } from "@/lib/salle-types";
 import {
   DEFAULT_SEAT_SIZE,
   generateSeatId,
   computeLineSeats,
   computeArcSeats,
+  SALLE_CANVAS_SIZE,
 } from "@/lib/salle-types";
 import { SeatItem } from "./SeatItem";
 import type { SalleTool } from "./SalleToolbar";
@@ -22,9 +23,12 @@ interface SalleCanvasProps {
   onSeatsChange: (seats: Seat[]) => void;
   onSelectionChange: (ids: Set<string>) => void;
   onSeatDoubleClick: (id: string) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetView?: () => void;
 }
 
-const CANVAS_SIZE = 4000;
+export const CANVAS_SIZE = SALLE_CANVAS_SIZE;
 
 function snapValue(v: number, gridSize: number): number {
   return Math.round(v / gridSize) * gridSize;
@@ -41,8 +45,18 @@ export function SalleCanvas({
   onSeatsChange,
   onSelectionChange,
   onSeatDoubleClick,
+  onZoomIn,
+  onZoomOut,
 }: SalleCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const didScrollToCenter = useRef(false);
+
+  // Pan state: middle-mouse or Space+drag
+  const isPanning = useRef(false);
+  const panStart = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeldRef = useRef(false);
+
   const [marquee, setMarquee] = useState<{
     startX: number;
     startY: number;
@@ -62,8 +76,56 @@ export function SalleCanvas({
     endY: number;
   } | null>(null);
 
+  // Track space key for pan mode
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        const tag = document.activeElement?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        spaceHeldRef.current = true;
+        setSpaceHeld(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        spaceHeldRef.current = false;
+        setSpaceHeld(false);
+        isPanning.current = false;
+        panStart.current = null;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  // Center on seats on first load
+  useEffect(() => {
+    if (seats.length === 0) {
+      didScrollToCenter.current = false;
+      return;
+    }
+    if (didScrollToCenter.current) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const center = SALLE_CANVAS_SIZE / 2;
+    const scrollToCenter = () => {
+      if (!containerRef.current) return;
+      const c = containerRef.current;
+      c.scrollLeft = center * zoom - c.clientWidth / 2;
+      c.scrollTop = center * zoom - c.clientHeight / 2;
+      didScrollToCenter.current = true;
+    };
+    const t = requestAnimationFrame(scrollToCenter);
+    return () => cancelAnimationFrame(t);
+  }, [seats.length, zoom]);
+
   const getCanvasPos = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.MouseEvent | MouseEvent) => {
       const rect = containerRef.current!.getBoundingClientRect();
       const scrollLeft = containerRef.current!.scrollLeft;
       const scrollTop = containerRef.current!.scrollTop;
@@ -112,6 +174,32 @@ export function SalleCanvas({
 
   const handleCanvasPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Middle mouse button → start pan
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning.current = true;
+        panStart.current = {
+          x: e.clientX,
+          y: e.clientY,
+          scrollLeft: containerRef.current!.scrollLeft,
+          scrollTop: containerRef.current!.scrollTop,
+        };
+        return;
+      }
+
+      // Space+left click → pan
+      if (spaceHeldRef.current && e.button === 0) {
+        e.preventDefault();
+        isPanning.current = true;
+        panStart.current = {
+          x: e.clientX,
+          y: e.clientY,
+          scrollLeft: containerRef.current!.scrollLeft,
+          scrollTop: containerRef.current!.scrollTop,
+        };
+        return;
+      }
+
       if ((e.target as HTMLElement) !== containerRef.current?.firstElementChild)
         return;
 
@@ -143,17 +231,39 @@ export function SalleCanvas({
         setArcPreview({ cx: pos.x, cy: pos.y, endX: pos.x, endY: pos.y });
       }
     },
-    [activeTool, seats, getCanvasPos, onSeatsChange, onSelectionChange]
+    [activeTool, seats, getCanvasPos, onSeatsChange, onSelectionChange, snapEnabled, gridSize]
   );
 
   const handleCanvasPointerMove = useCallback(
     (e: React.PointerEvent) => {
+      // Pan in progress
+      if (isPanning.current && panStart.current && containerRef.current) {
+        const dx = e.clientX - panStart.current.x;
+        const dy = e.clientY - panStart.current.y;
+        containerRef.current.scrollLeft = panStart.current.scrollLeft - dx;
+        containerRef.current.scrollTop = panStart.current.scrollTop - dy;
+        return;
+      }
+
       const pos = getCanvasPos(e);
+
+      let adjustedForLine = pos;
+      if (linePreview && e.shiftKey) {
+        const dx = pos.x - linePreview.startX;
+        const dy = pos.y - linePreview.startY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          adjustedForLine = { x: pos.x, y: linePreview.startY };
+        } else {
+          adjustedForLine = { x: linePreview.startX, y: pos.y };
+        }
+      }
+
       if (marquee) {
         setMarquee((m) => (m ? { ...m, endX: pos.x, endY: pos.y } : null));
       }
       if (linePreview) {
-        setLinePreview((l) => (l ? { ...l, endX: pos.x, endY: pos.y } : null));
+        const p = adjustedForLine;
+        setLinePreview((l) => (l ? { ...l, endX: p.x, endY: p.y } : null));
       }
       if (arcPreview) {
         setArcPreview((a) => (a ? { ...a, endX: pos.x, endY: pos.y } : null));
@@ -163,6 +273,13 @@ export function SalleCanvas({
   );
 
   const handleCanvasPointerUp = useCallback(() => {
+    // End pan
+    if (isPanning.current) {
+      isPanning.current = false;
+      panStart.current = null;
+      return;
+    }
+
     if (marquee) {
       const x1 = Math.min(marquee.startX, marquee.endX);
       const y1 = Math.min(marquee.startY, marquee.endY);
@@ -204,25 +321,21 @@ export function SalleCanvas({
     }
 
     if (arcPreview) {
-      const dx = arcPreview.endX - arcPreview.cx;
-      const dy = arcPreview.endY - arcPreview.cy;
-      const radius = Math.sqrt(dx * dx + dy * dy);
-      if (radius > 20) {
-        const circumference = Math.PI * radius;
-        const count = Math.max(3, Math.round(circumference / (DEFAULT_SEAT_SIZE + 8)));
-        const startAngle = Math.atan2(dy, dx);
-        const newSeats: Seat[] = [];
-        for (let i = 0; i < count; i++) {
-          const angle = startAngle + (Math.PI * i) / (count - 1);
-          newSeats.push({
-            id: generateSeatId(),
-            x: arcPreview.cx + Math.cos(angle) * radius - DEFAULT_SEAT_SIZE / 2,
-            y: arcPreview.cy + Math.sin(angle) * radius - DEFAULT_SEAT_SIZE / 2,
-            width: DEFAULT_SEAT_SIZE,
-            height: DEFAULT_SEAT_SIZE,
-            rotation: 0,
-          });
-        }
+      const positions = computeArcSeats(
+        arcPreview.cx,
+        arcPreview.cy,
+        arcPreview.endX,
+        arcPreview.endY
+      );
+      if (positions.length > 0) {
+        const newSeats: Seat[] = positions.map((pos) => ({
+          id: generateSeatId(),
+          x: pos.x,
+          y: pos.y,
+          width: DEFAULT_SEAT_SIZE,
+          height: DEFAULT_SEAT_SIZE,
+          rotation: pos.rotation ?? 0,
+        }));
         onSeatsChange([...seats, ...newSeats]);
         onSelectionChange(new Set(newSeats.map((s) => s.id)));
       }
@@ -239,14 +352,35 @@ export function SalleCanvas({
       }
     : null;
 
+  // Determine cursor style
+  const cursorStyle = spaceHeld || isPanning.current
+    ? isPanning.current ? "grabbing" : "grab"
+    : activeTool === "select"
+    ? "default"
+    : "crosshair";
+
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-auto bg-[#07070b] relative"
-      style={{ cursor: activeTool === "select" ? "default" : "crosshair" }}
+      className="salle-canvas-container flex-1 overflow-auto bg-[#07070b] relative select-none"
+      style={{ cursor: cursorStyle }}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={handleCanvasPointerMove}
       onPointerUp={handleCanvasPointerUp}
+      onPointerLeave={() => {
+        if (isPanning.current) {
+          isPanning.current = false;
+          panStart.current = null;
+        }
+      }}
+      onWheel={(e) => {
+        e.preventDefault();
+        if (e.deltaY > 0) {
+          onZoomOut();
+        } else if (e.deltaY < 0) {
+          onZoomIn();
+        }
+      }}
     >
       <div
         className="relative"
@@ -262,7 +396,7 @@ export function SalleCanvas({
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: snapEnabled
-              ? "radial-gradient(circle, rgba(139,92,246,0.12) 1px, transparent 1px)"
+              ? "radial-gradient(circle, rgba(var(--color-primary),0.15) 1px, transparent 1px)"
               : "radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)",
             backgroundSize: snapEnabled
               ? `${gridSize}px ${gridSize}px`
@@ -287,7 +421,7 @@ export function SalleCanvas({
         {/* Marquee selection rectangle */}
         {marqueeRect && marqueeRect.width > 2 && (
           <div
-            className="absolute border border-violet-500 bg-violet-500/10 pointer-events-none"
+            className="absolute border border-primary bg-primary/10 pointer-events-none"
             style={marqueeRect}
           />
         )}
@@ -302,7 +436,7 @@ export function SalleCanvas({
           ).map((pos, i) => (
             <div
               key={`ghost-line-${i}`}
-              className="absolute rounded-md border-2 border-violet-500/50 bg-violet-500/20 pointer-events-none"
+              className="absolute rounded-md border-2 border-primary/50 bg-primary/20 pointer-events-none"
               style={{
                 left: pos.x,
                 top: pos.y,
@@ -322,12 +456,14 @@ export function SalleCanvas({
           ).map((pos, i) => (
             <div
               key={`ghost-arc-${i}`}
-              className="absolute rounded-md border-2 border-violet-500/50 bg-violet-500/20 pointer-events-none"
+              className="absolute rounded-md border-2 border-primary/50 bg-primary/20 pointer-events-none"
               style={{
                 left: pos.x,
                 top: pos.y,
                 width: DEFAULT_SEAT_SIZE,
                 height: DEFAULT_SEAT_SIZE,
+                transform: pos.rotation ? `rotate(${pos.rotation}deg)` : undefined,
+                transformOrigin: "50% 50%",
               }}
             />
           ))}
@@ -335,7 +471,7 @@ export function SalleCanvas({
         {/* Arc center indicator */}
         {arcPreview && (
           <div
-            className="absolute size-2 rounded-full bg-violet-500 pointer-events-none -translate-x-1 -translate-y-1"
+            className="absolute size-2 rounded-full bg-primary pointer-events-none -translate-x-1 -translate-y-1"
             style={{ left: arcPreview.cx, top: arcPreview.cy }}
           />
         )}

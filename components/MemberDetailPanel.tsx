@@ -115,11 +115,11 @@ const fieldLabel =
   "text-[11px] font-medium uppercase tracking-wider text-zinc-500";
 const selectClass = cn(
   "h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white shadow-xs outline-none",
-  "focus-visible:border-violet-500/50 focus-visible:ring-2 focus-visible:ring-violet-500/40",
+  "focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40",
   "disabled:opacity-50 [&>option]:bg-zinc-900 [&>option]:text-white"
 );
 const inputClass =
-  "h-8 border-white/10 bg-white/[0.04] text-sm text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40";
+  "h-8 border-white/10 bg-white/[0.04] text-sm text-white placeholder:text-zinc-600 focus-visible:ring-primary/40";
 
 export function MemberDetailPanel({
   member,
@@ -537,13 +537,13 @@ export function MemberDetailPanel({
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
             <div className="flex items-center gap-2.5">
-              <div className={`flex size-8 items-center justify-center rounded-lg ${isLocked ? "bg-red-600/20" : "bg-violet-600/20"}`}>
+              <div className={`flex size-8 items-center justify-center rounded-lg ${isLocked ? "bg-red-600/20" : "bg-primary/20"}`}>
                 {isNew ? (
-                  <UserPlus className="size-4 text-violet-400" />
+                  <UserPlus className="size-4 text-primary" />
                 ) : isLocked ? (
                   <Save className="size-4 text-red-400" />
                 ) : (
-                  <Save className="size-4 text-violet-400" />
+                  <Save className="size-4 text-primary" />
                 )}
               </div>
               <h2
@@ -572,7 +572,7 @@ export function MemberDetailPanel({
               <div className="flex items-center gap-2">
                 {saving && (
                   <span className="text-[11px] text-zinc-500 flex items-center gap-1.5">
-                    <span className="size-3.5 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+                    <span className="size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     Enregistrement…
                   </span>
                 )}
@@ -614,7 +614,7 @@ export function MemberDetailPanel({
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
               {/* ── Identité ── */}
               <fieldset className="space-y-2.5">
-                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
+                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-primary/80">
                   Identité
                 </legend>
                 {contactType === "commercial" ? (
@@ -797,7 +797,7 @@ export function MemberDetailPanel({
 
               {/* ── Localisation ── */}
               <fieldset className="space-y-2.5">
-                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
+                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-primary/80">
                   <MapPin className="mr-1 -mt-0.5 inline size-3" />
                   Localisation
                 </legend>
@@ -870,7 +870,7 @@ export function MemberDetailPanel({
 
               {/* ── Informations ── */}
               <fieldset className="space-y-2.5">
-                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
+                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-primary/80">
                   Informations
                 </legend>
                 <div className="grid grid-cols-2 gap-3">
@@ -983,7 +983,7 @@ export function MemberDetailPanel({
                     disabled={readOnly}
                     className={cn(
                       "w-full resize-none rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none",
-                      "focus-visible:border-violet-500/50 focus-visible:ring-2 focus-visible:ring-violet-500/40"
+                      "focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40"
                     )}
                     placeholder="Optionnel"
                   />
@@ -992,7 +992,7 @@ export function MemberDetailPanel({
 
               {/* ── Réseaux sociaux ── */}
               <fieldset className="space-y-2.5">
-                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-violet-400/80">
+                <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-primary/80">
                   Réseaux sociaux
                 </legend>
                 
@@ -1121,7 +1121,7 @@ export function MemberDetailPanel({
                                   window.open(url, "_blank");
                                 }
                               }}
-                              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600/20 px-2.5 py-1 text-xs text-violet-300 hover:bg-violet-600/30 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1.5 rounded-md bg-primary/20 px-2.5 py-1 text-xs text-primary/80 hover:bg-primary/30 transition-colors cursor-pointer"
                             >
                               {reseau}
                               <ExternalLink className="size-3" />
@@ -1176,7 +1176,7 @@ export function MemberDetailPanel({
                   <Button
                     type="submit"
                     disabled={saving || deleting}
-                    className="flex flex-1 items-center justify-center gap-2 bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-70"
+                    className="flex flex-1 items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-70"
                   >
                     {saving ? (
                       "Enregistrement…"

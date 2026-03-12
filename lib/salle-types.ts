@@ -22,6 +22,9 @@ export interface SallePlan {
 
 export const DEFAULT_SEAT_SIZE = 40;
 
+/** Taille du canvas de placement (origine en haut à gauche). Utilisé pour centrer les templates. */
+export const SALLE_CANVAS_SIZE = 4000;
+
 export const PRESET_COLORS = [
   "#8b5cf6", // violet
   "#3b82f6", // blue
@@ -42,6 +45,7 @@ export function generateSeatId(): string {
 export interface SeatPosition {
   x: number;
   y: number;
+  rotation?: number;
 }
 
 export function computeLineSeats(
@@ -84,6 +88,7 @@ export function computeArcSeats(
     seats.push({
       x: cx + Math.cos(angle) * radius - DEFAULT_SEAT_SIZE / 2,
       y: cy + Math.sin(angle) * radius - DEFAULT_SEAT_SIZE / 2,
+      rotation: (angle * 180) / Math.PI,
     });
   }
   return seats;

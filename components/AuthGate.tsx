@@ -1,12 +1,23 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Loader2, Clock } from "lucide-react";
+import { SetupWizard } from "@/components/SetupWizard";
+import { isSetupCompleted } from "@/lib/theme";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, profile, permissions, loading, signInWithGoogle, signOut } =
     useAuth();
+
+  const [setupDone, setSetupDone] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      setSetupDone(isSetupCompleted());
+    }
+  }, [user]);
 
   if (loading) {
     return null;
@@ -16,7 +27,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#050508]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/[0.06] blur-[100px]" />
+          <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.06] blur-[100px]" />
           <div className="absolute left-1/3 top-2/3 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-600/[0.04] blur-[80px]" />
         </div>
         <div className="relative w-full max-w-sm px-6">
@@ -68,6 +79,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!setupDone) {
+    return <SetupWizard onComplete={() => setSetupDone(true)} />;
+  }
+
   const hasAnyRead =
     profile?.role === "admin" ||
     profile?.role === "editor" ||
@@ -77,13 +92,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#050508]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute left-1/2 top-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/[0.04] blur-[100px]" />
+          <div className="absolute left-1/2 top-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.04] blur-[100px]" />
         </div>
         <div className="relative w-full max-w-sm px-6">
           <div className="rounded-2xl border border-white/[0.08] bg-[#0a0a12]/80 backdrop-blur-2xl p-8 shadow-2xl shadow-black/40 text-center">
             <div className="mb-4 flex justify-center">
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-violet-600/15">
-                <Clock className="size-7 text-violet-400" />
+              <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/15">
+                <Clock className="size-7 text-primary" />
               </div>
             </div>
             <h2 className="text-lg font-semibold text-white mb-2">

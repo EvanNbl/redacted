@@ -742,7 +742,7 @@ export default function Home() {
 
   /* ── Filter select classes ────────────────────────────── */
   const selectCls =
-    "h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white outline-none focus-visible:border-violet-500/50 focus-visible:ring-1 focus-visible:ring-violet-500/40 [&>option]:bg-zinc-900 [&>option]:text-white";
+    "h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white outline-none focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/40 [&>option]:bg-zinc-900 [&>option]:text-white";
 
   /* ── Render ───────────────────────────────────────────── */
 
@@ -768,8 +768,8 @@ export default function Home() {
 
           {/* App title */}
           <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-lg bg-violet-600/20">
-              <MapPin className="size-3.5 text-violet-400" />
+            <div className="flex size-7 items-center justify-center rounded-lg bg-primary/20">
+              <MapPin className="size-3.5 text-primary" />
             </div>
             <span className="hidden text-sm font-semibold tracking-tight text-white sm:inline">
               Contacts Map
@@ -782,7 +782,7 @@ export default function Home() {
               onClick={() => setContactType("communication")}
               className={`px-3 py-1 text-xs font-medium transition-colors rounded ${
                 contactType === "communication"
-                  ? "bg-violet-600 text-white"
+                  ? "bg-primary text-primary-foreground"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -792,7 +792,7 @@ export default function Home() {
               onClick={() => setContactType("commercial")}
               className={`px-3 py-1 text-xs font-medium transition-colors rounded ${
                 contactType === "commercial"
-                  ? "bg-violet-600 text-white"
+                  ? "bg-primary text-primary-foreground"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -812,14 +812,14 @@ export default function Home() {
               placeholder="Rechercher…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 border-white/10 bg-white/5 pl-8 text-xs text-white placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+              className="h-8 border-white/10 bg-white/5 pl-8 text-xs text-white placeholder:text-zinc-500 focus-visible:ring-primary/50"
             />
           </div>
 
           {/* Counter */}
           {showMap && (
             <div className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs sm:flex">
-              <Users className="size-3.5 text-violet-400" />
+              <Users className="size-3.5 text-primary" />
               <span className="text-zinc-400">
                 {filteredMembers.length === members.length
                   ? `${members.length}`
@@ -850,14 +850,14 @@ export default function Home() {
             onClick={() => setShowFilters((f) => !f)}
             className={`relative h-8 px-2.5 text-xs ${
               showFilters || activeFilterCount > 0
-                ? "bg-violet-600/20 text-violet-300"
+                ? "bg-primary/20 text-primary/80"
                 : "text-zinc-400 hover:text-white"
             }`}
           >
             <Filter className="size-3.5" />
             <span className="hidden sm:inline">Filtres</span>
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {activeFilterCount}
               </span>
             )}
@@ -868,7 +868,7 @@ export default function Home() {
             <Button
               onClick={handleOpenAdd}
               size="sm"
-              className="h-8 bg-violet-600 px-3 text-xs text-white hover:bg-violet-500"
+              className="h-8 bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="size-3.5" />
               <span className="hidden sm:inline">Ajouter</span>
@@ -897,7 +897,7 @@ export default function Home() {
               {showMap && canEdit && (
                 <DropdownMenuItem
                   onClick={handleOpenAdd}
-                  className="focus:bg-violet-600/20 focus:text-violet-100"
+                  className="focus:bg-primary/20 focus:text-primary-foreground"
                 >
                   <UserPlus className="size-4" />
                   Ajouter un contact
@@ -906,7 +906,7 @@ export default function Home() {
               <DropdownMenuItem
                 onClick={() => void refreshFromSheet()}
                 disabled={loading}
-                className="focus:bg-violet-600/20 focus:text-violet-100"
+                className="focus:bg-primary/20 focus:text-primary-foreground"
               >
                 <RefreshCw
                   className={`size-4 ${loading ? "animate-spin" : ""}`}
@@ -916,7 +916,7 @@ export default function Home() {
               {showMap && filteredMembers.length > 0 && (
                 <DropdownMenuItem
                   onClick={handleExportCsv}
-                  className="focus:bg-violet-600/20 focus:text-violet-100"
+                  className="focus:bg-primary/20 focus:text-primary-foreground"
                 >
                   <Download className="size-4" />
                   Exporter en CSV
@@ -929,7 +929,7 @@ export default function Home() {
                       new CustomEvent("projet-paris:check-update")
                     )
                   }
-                  className="focus:bg-violet-600/20 focus:text-violet-100"
+                  className="focus:bg-primary/20 focus:text-primary-foreground"
                 >
                   <Download className="size-4" />
                   Vérifier les mises à jour
@@ -1073,14 +1073,14 @@ export default function Home() {
                 <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
                   Contacts
                 </span>
-                <span className="rounded-md bg-violet-600/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-400">
+                <span className="rounded-md bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                   {filteredMembers.length}
                 </span>
               </div>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="w-full h-7 rounded border border-white/10 bg-white/5 px-2 text-[11px] text-zinc-300 focus:border-violet-500/50 focus:outline-none [&>option]:bg-zinc-900"
+                className="w-full h-7 rounded border border-white/10 bg-white/5 px-2 text-[11px] text-zinc-300 focus:border-primary/50 focus:outline-none [&>option]:bg-zinc-900"
               >
                 <option value="name">Tri : Nom</option>
                 <option value="pays">Tri : Pays</option>
@@ -1126,7 +1126,7 @@ export default function Home() {
                           <span className={`text-[10px] font-semibold uppercase tracking-wider ${isRefus ? "text-red-400/90" : "text-zinc-500"}`}>
                             {row.label}
                           </span>
-                          <span className={`rounded px-1.5 py-0.5 text-[10px] ${isRefus ? "bg-red-500/20 text-red-400" : "bg-violet-600/20 text-violet-400"}`}>
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] ${isRefus ? "bg-red-500/20 text-red-400" : "bg-primary/20 text-primary"}`}>
                             {row.count}
                           </span>
                         </div>
@@ -1157,7 +1157,7 @@ export default function Home() {
                         onClick={() => handleMemberClick(m)}
                         className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
                           selectedMember?.id === m.id
-                            ? isRefus ? "bg-red-600/10 border-l-2 border-l-red-500" : "bg-violet-600/10 border-l-2 border-l-violet-500"
+                            ? isRefus ? "bg-red-600/10 border-l-2 border-l-red-500" : "bg-primary/10 border-l-2 border-l-primary"
                             : ""
                         }`}
                         style={{
@@ -1169,7 +1169,7 @@ export default function Home() {
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
                       >
-                        <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${isRefus ? "bg-red-600/20 text-red-300" : "bg-violet-600/20 text-violet-300"}`}>
+                        <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${isRefus ? "bg-red-600/20 text-red-300" : "bg-primary/20 text-primary/80"}`}>
                           {(displayName?.[0] ?? "?").toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1222,7 +1222,7 @@ export default function Home() {
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                             Contacts
                           </span>
-                          <span className="ml-1.5 rounded bg-violet-600/20 px-1.5 py-0.5 text-[10px] text-violet-400">
+                          <span className="ml-1.5 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] text-primary">
                             {sortedActifs.length}
                           </span>
                         </div>
@@ -1233,11 +1233,11 @@ export default function Home() {
                           onClick={() => handleMemberClick(m)}
                           className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
                             selectedMember?.id === m.id
-                              ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                              ? "bg-primary/10 border-l-2 border-l-primary"
                               : ""
                           }`}
                         >
-                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-xs font-bold text-primary/80">
                             {(m.pseudo?.[0] ?? "?").toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1335,11 +1335,11 @@ export default function Home() {
                           onClick={() => handleMemberClick(m)}
                           className={`group flex w-full items-start gap-2.5 border-b border-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03] ${
                             selectedMember?.id === m.id
-                              ? "bg-violet-600/10 border-l-2 border-l-violet-500"
+                              ? "bg-primary/10 border-l-2 border-l-primary"
                               : ""
                           }`}
                         >
-                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-xs font-bold text-violet-300">
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-xs font-bold text-primary/80">
                             {(displayName?.[0] ?? "?").toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1401,7 +1401,7 @@ export default function Home() {
                 <Button
                   onClick={handleOpenAdd}
                   size="sm"
-                  className="w-full bg-violet-600/20 text-xs text-violet-300 hover:bg-violet-600/30"
+                  className="w-full bg-primary/20 text-xs text-primary/80 hover:bg-primary/30"
                 >
                   <UserPlus className="size-3.5" />
                   Nouveau contact
@@ -1452,7 +1452,7 @@ export default function Home() {
               <Button
                 variant="link"
                 onClick={clearFilters}
-                className="text-violet-400 hover:text-violet-300"
+                className="text-primary hover:text-primary/80"
               >
                 Effacer les filtres
               </Button>
@@ -1493,7 +1493,7 @@ export default function Home() {
           {loading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-zinc-900/90 px-8 py-6 shadow-2xl">
-                <div className="size-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+                <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                 <span className="text-xs text-zinc-400">
                   Actualisation…
                 </span>

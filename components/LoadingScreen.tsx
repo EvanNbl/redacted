@@ -114,7 +114,7 @@ export function LoadingScreen({ loading, onFinished }: LoadingScreenProps) {
     >
       {/* Animated background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute left-1/2 top-[40%] h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-600/[0.07] blur-[100px] animate-pulse" />
+        <div className="absolute left-1/2 top-[40%] h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.07] blur-[100px] animate-pulse" />
         <div className="absolute left-[30%] top-[60%] h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500/[0.05] blur-[80px]" />
         <div className="absolute right-[25%] top-[30%] h-[200px] w-[200px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-500/[0.04] blur-[60px]" />
       </div>
@@ -152,7 +152,7 @@ export function LoadingScreen({ loading, onFinished }: LoadingScreenProps) {
           className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[11px] font-mono tracking-widest text-zinc-500"
           style={{ opacity: 0 }}
         >
-          <span className="size-1.5 rounded-full bg-violet-500 animate-pulse" />
+          <span className="size-1.5 rounded-full bg-primary animate-pulse" />
           v{APP_VERSION}
         </p>
       </div>

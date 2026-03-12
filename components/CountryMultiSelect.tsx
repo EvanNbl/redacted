@@ -110,8 +110,8 @@ export function CountryMultiSelect({
       <div
         className={cn(
           "flex min-h-8 h-8 w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-sm text-white shadow-xs outline-none transition-colors overflow-hidden",
-          "focus-within:border-violet-500/50 focus-within:ring-2 focus-within:ring-violet-500/40",
-          isOpen && "border-violet-500/50 ring-2 ring-violet-500/40"
+          "focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/40",
+          isOpen && "border-primary/50 ring-2 ring-primary/40"
         )}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
@@ -167,7 +167,7 @@ export function CountryMultiSelect({
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder="Rechercher un pays…"
-                className="h-7 border-white/10 bg-white/[0.04] pl-8 pr-2 text-xs text-white placeholder:text-zinc-600 focus-visible:ring-violet-500/40"
+                className="h-7 border-white/10 bg-white/[0.04] pl-8 pr-2 text-xs text-white placeholder:text-zinc-600 focus-visible:ring-primary/40"
                 onClick={(e) => e.stopPropagation()}
               />
               <div className="absolute left-3 top-0 bottom-0 flex items-center pointer-events-none">
@@ -187,16 +187,16 @@ export function CountryMultiSelect({
                     className={cn(
                       "flex cursor-pointer items-center gap-2 px-3 py-2 text-sm transition-colors",
                       index === activeIndex
-                        ? "bg-violet-600/20 text-white"
+                        ? "bg-primary/20 text-white"
                         : "text-zinc-300 hover:bg-white/5",
-                      isSelected && "bg-violet-500/10"
+                      isSelected && "bg-primary/10"
                     )}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => toggleOption(option)}
                   >
                     <div className="flex size-4 shrink-0 items-center justify-center">
                       {isSelected && (
-                        <Check className="size-3.5 text-violet-400" />
+                        <Check className="size-3.5 text-primary" />
                       )}
                     </div>
                     <span className="flex-1">{option}</span>
